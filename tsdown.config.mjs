@@ -1,12 +1,12 @@
 /**
- * tsdown build for desk-files (same minimal pattern as the base): host
+ * tsdown build for dock-files (same minimal pattern as the base): host
  * half ESM via tsc + tsdown; client half a single CJS closure factory
  * registered with window.__ModuleLoader__.load. react / cordis stay
- * external; desk is imported type-only (erased at build), so the
+ * external; dock is imported type-only (erased at build), so the
  * client bundle carries no runtime dependency on the base — all runtime
  * interaction goes through ctx.workbench method calls.
  */
-const id = 'desk-files'
+const id = 'dock-files'
 
 const CLIENT_EXTERNALS = [
   'react',

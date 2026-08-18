@@ -1,25 +1,25 @@
 /**
- * Client half of desk-files: the file-domain host. It owns the "file"
+ * Client half of dock-files: the file-domain host. It owns the "file"
  * concept (the explorer panel browses files) and dispatches opening a file
- * to registered file viewers (e.g. desk-editor) through the workbench's
+ * to registered file viewers (e.g. dock-editor) through the workbench's
  * editor-area carrier. It no longer renders file content itself — viewers
  * do. Type-only imports only; all runtime collaboration goes through
  * ctx.workbench / ctx.files method calls.
  */
-import type {} from 'desk/client/contract'
-import type { IconSpec, WorkbenchContext, WorkbenchService } from 'desk/client/contract'
+import type {} from 'dock/client/contract'
+import type { IconSpec, WorkbenchContext, WorkbenchService } from 'dock/client/contract'
 import { ExplorerView } from './ExplorerView'
 import { mountStyles } from './styles'
 
 /** Requires the workbench base to be mounted. */
 export const inject = ['workbench']
 
-/** Folder icon (fill style, currentColor), rendered by the desk shell. */
+/** Folder icon (fill style, currentColor), rendered by the dock shell. */
 const FOLDER_ICON: IconSpec = {
   path: 'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z',
 }
 
-/** One registered file viewer (desk-editor registers itself here). */
+/** One registered file viewer (dock-editor registers itself here). */
 interface FileViewerDef {
   id: string
   /** Lowercase extensions without dots; [] or undefined = catch-all default. */
@@ -28,7 +28,7 @@ interface FileViewerDef {
   default?: boolean
 }
 
-/** The file-domain service desk-files provides as `ctx.files`. */
+/** The file-domain service dock-files provides as `ctx.files`. */
 export interface FilesService {
   /** Open a file: dispatch to the matching viewer, carried by the workbench. */
   open(path: string, options?: { title?: string; mode?: 'tab' | 'floating' }): void
@@ -56,7 +56,7 @@ function createFilesService(workbench: WorkbenchService): FilesService {
     const matched = [...viewers.values()].find((v) => v.exts?.includes(ext))
       ?? [...viewers.values()].find((v) => v.default === true)
     if (matched === undefined) {
-      console.warn(`[desk-files] no file viewer registered for "${path}" (install desk-editor)`)
+      console.warn(`[dock-files] no file viewer registered for "${path}" (install dock-editor)`)
       return
     }
     const seed = { path, title: options?.title ?? baseNameOf(path) }
@@ -76,9 +76,9 @@ export function apply(ctx: WorkbenchContext): void {
   if (workbench === undefined) return
 
   // Shell styles (context-menu hover/active feedback).
-  ctx.effect(() => mountStyles(), 'desk-files: styles')
+  ctx.effect(() => mountStyles(), 'dock-files: styles')
 
-  // File-domain service: viewers (desk-editor) register here, the explorer
+  // File-domain service: viewers (dock-editor) register here, the explorer
   // and system open-path entry dispatch through it.
   const files = createFilesService(workbench)
   ctx.provide('files', files)
@@ -86,7 +86,7 @@ export function apply(ctx: WorkbenchContext): void {
   // System entry: external paths (chat links, other plugins) route in.
   ctx.effect(() => workbench.registerOpenPathHandler((path, options) => {
     files.open(path, { title: options?.title })
-  }), 'desk-files: open-path handler')
+  }), 'dock-files: open-path handler')
 
   // Activity item: the left strip entry that reveals the files pane.
   ctx.effect(() => workbench.registerActivityBarItem({
@@ -95,7 +95,7 @@ export function apply(ctx: WorkbenchContext): void {
     icon: FOLDER_ICON,
     order: 10,
     paneId: 'files',
-  }), 'desk-files: activity item')
+  }), 'dock-files: activity item')
 
   // The side-bar pane itself — a pure file browser now.
   ctx.effect(() => workbench.registerPanel({
@@ -105,5 +105,5 @@ export function apply(ctx: WorkbenchContext): void {
     icon: FOLDER_ICON,
     order: 10,
     component: ExplorerView,
-  }), 'desk-files: files panel')
+  }), 'dock-files: files panel')
 }

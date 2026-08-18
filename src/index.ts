@@ -1,5 +1,5 @@
 /**
- * Host half of desk-files: the /wb-files JSON API (single-level directory
+ * Host half of dock-files: the /wb-files JSON API (single-level directory
  * listing, browser-trust fenced like the /api gateway). Stripped and
  * simplified from dsh-better-sidebar (MIT): fs-tree / wire / trust-fence
  * helpers are copied here because the plugin must not depend on another
@@ -13,7 +13,7 @@ import { opendir } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 
-export const name = 'desk-files'
+export const name = 'dock-files'
 
 /** Services required before mounting. */
 export const inject = ['webServer', 'sessions', 'webRuntime']
@@ -272,7 +272,7 @@ export function apply(ctx: WbContext): void {
         writeError(res, error)
       }
     },
-  }), 'desk-files: /wb-files routes')
+  }), 'dock-files: /wb-files routes')
 }
 
 // Kept referenced so rootLabel/parentOf survive tree-shaking for the

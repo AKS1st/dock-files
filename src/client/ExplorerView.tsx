@@ -2,12 +2,12 @@
  * Pure file browser: a lazy recursive directory tree over the active
  * session's working directory (own /wb-files host route). Clicking a file
  * dispatches through the file-domain service (`ctx.files.open`) to a
- * registered file viewer (desk-editor) — this view never renders file
+ * registered file viewer (dock-editor) — this view never renders file
  * content itself.
  */
 import { createElement, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { ViewProps } from 'desk/client/contract'
+import type { ViewProps } from 'dock/client/contract'
 import type { FilesService } from './index'
 
 /** One wire row (host WbFsEntry shape). */
@@ -199,7 +199,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }
   rows.push(...renderLevel(entries, 0))
 
-  // File context menu (independent of the desk shell's own menu). Items use
+  // File context menu (independent of the dock shell's own menu). Items use
   // the .df-context-menu-item class for hover/active feedback; both mousedown
   // (immediate) and click (full sequence) fire the action — the open helpers
   // are idempotent, so a double fire just focuses the already-open tab.

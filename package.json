@@ -1,7 +1,7 @@
 {
-  "name": "desk-files",
+  "name": "dock-files",
   "version": "0.1.0",
-  "description": "File explorer feature plugin for desk: mounts a side-bar files panel (activity item 'files') that browses the active conversation's working directory through its own /wb-files host route. First dogfood of the workbench contract.",
+  "description": "File explorer feature plugin for dock: mounts a side-bar files panel (activity item 'files') that browses the active conversation's working directory through its own /wb-files host route. First dogfood of the workbench contract.",
   "type": "module",
   "license": "MIT",
   "main": "./lib/index.js",
@@ -32,11 +32,11 @@
   },
   "peerDependencies": {
     "cordis": "^4.0.0-rc.7",
-    "desk": ">=0.1.0",
+    "dock": ">=0.1.0",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
-    "desk": {
+    "dock": {
       "optional": true
     },
     "react": {
@@ -47,7 +47,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "desk": "link:/home/zero/AgentX/plugins/desk",
+    "dock": "link:/home/zero/AgentX/plugins/dock",
     "tsdown": "^0.22.14",
     "typescript": "^6.0.3"
   },

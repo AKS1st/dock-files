@@ -1,7 +1,7 @@
 /**
- * desk-files shell styles: the file-tree context menu needs :hover/:active
+ * dock-files shell styles: the file-tree context menu needs :hover/:active
  * feedback, which inline styles cannot express — injected once as a
- * <style data-plugin="desk-files"> tag (same pattern as the desk base).
+ * <style data-plugin="dock-files"> tag (same pattern as the dock base).
  */
 const CSS = `
 .df-context-menu {
@@ -32,10 +32,10 @@ const CSS = `
 `
 
 export function mountStyles(): () => void {
-  const existing = document.querySelector('style[data-plugin="desk-files"]')
+  const existing = document.querySelector('style[data-plugin="dock-files"]')
   if (existing !== null) existing.remove()
   const style = document.createElement('style')
-  style.setAttribute('data-plugin', 'desk-files')
+  style.setAttribute('data-plugin', 'dock-files')
   style.textContent = CSS
   document.head.appendChild(style)
   return () => { style.remove() }
