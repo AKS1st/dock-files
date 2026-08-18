@@ -9,6 +9,7 @@
 import type {} from 'desk/client/contract'
 import type { IconSpec, WorkbenchContext, WorkbenchService } from 'desk/client/contract'
 import { ExplorerView } from './ExplorerView'
+import { mountStyles } from './styles'
 
 /** Requires the workbench base to be mounted. */
 export const inject = ['workbench']
@@ -77,6 +78,9 @@ export function apply(ctx: WorkbenchContext): void {
   const workbench = ctx.get<WorkbenchService>('workbench')
   // Optional-peer guard: skip silently when the base is absent.
   if (workbench === undefined) return
+
+  // Shell styles (context-menu hover/active feedback).
+  ctx.effect(() => mountStyles(), 'desk-files: styles')
 
   // File-domain service: viewers (desk-editor) register here, the explorer
   // and system open-path entry dispatch through it.

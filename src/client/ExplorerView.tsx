@@ -194,43 +194,32 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }
   rows.push(...renderLevel(entries, 0))
 
-  // Minimal file context menu (independent of the desk shell's own menu).
+  // File context menu (independent of the desk shell's own menu). Items use
+  // the .df-context-menu-item class for hover/active feedback; both mousedown
+  // (immediate) and click (full sequence) fire the action — the open helpers
+  // are idempotent, so a double fire just focuses the already-open tab.
+  const menuItem = (key: string, label: string, action: () => void): ReactNode =>
+    createElement('div', {
+      key,
+      className: 'df-context-menu-item',
+      onMouseDown: action,
+      onClick: action,
+    }, label)
+
   const menuItems: ReactNode[] = menu !== null && menu.isDir
     ? [
-      createElement('div', {
-        key: 'refresh',
-        style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-        onMouseDown: () => refreshDir(menu.path),
-      }, '刷新'),
-      createElement('div', {
-        key: 'copy',
-        style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-        onMouseDown: () => copyPath(menu.path),
-      }, '复制路径'),
+      menuItem('refresh', '刷新', () => refreshDir(menu.path)),
+      menuItem('copy', '复制路径', () => copyPath(menu.path)),
     ]
     : menu !== null
       ? [
-        createElement('div', {
-          key: 'center',
-          style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-          onMouseDown: () => openFile(menu.path, 'tab'),
-        }, '在中心打开'),
-        createElement('div', {
-          key: 'floating',
-          style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-          onMouseDown: () => openFile(menu.path, 'floating'),
-        }, '在独立窗口打开'),
+        menuItem('center', '在中心打开', () => openFile(menu.path, 'tab')),
+        menuItem('floating', '在独立窗口打开', () => openFile(menu.path, 'floating')),
       ]
       : []
   const menuEl = menu === null ? null : createElement('div', {
-    style: {
-      position: 'fixed', left: menu.x, top: menu.y, zIndex: 90, minWidth: 140,
-      padding: 4, borderRadius: 8, fontSize: 13,
-      background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
-      border: '1px solid var(--dsw-alias-border-l2, #d8dbe0)',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-      color: 'var(--dsw-alias-label-primary, #1f2328)',
-    },
+    className: 'df-context-menu',
+    style: { left: menu.x, top: menu.y },
     onMouseDown: (event: MouseEvent) => event.stopPropagation(),
   }, ...menuItems)
 
