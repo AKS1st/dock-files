@@ -6,6 +6,7 @@
  * content itself.
  */
 import { createElement, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { ViewProps } from 'desk/client/contract'
 import type { FilesService } from './index'
 
@@ -229,6 +230,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
 
   return createElement('div', { className: 'dsh-wb-view' },
     rows,
-    menuEl,
+    // Portal to <body>: a transform on an ancestor (dock-mode floating panel)
+    // would otherwise turn the menu's fixed coordinates into panel-relative
+    // ones and render it off-screen.
+    menuEl !== null ? createPortal(menuEl, document.body) : null,
   )
 }
