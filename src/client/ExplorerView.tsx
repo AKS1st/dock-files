@@ -65,8 +65,12 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }, [sessionId])
 
   useEffect(() => {
+    // Session/workspace switch: drop the old workspace's directory cache and
+    // reload from the new session's working directory.
+    setChildren(new Map())
+    setExpanded(new Set())
     if (active) void load()
-  }, [active, load])
+  }, [active, load, sessionId])
 
   /** Fetch and cache one directory level. */
   const fetchChildren = useCallback(async (path: string): Promise<void> => {
