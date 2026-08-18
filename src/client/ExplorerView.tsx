@@ -38,7 +38,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const [children, setChildren] = useState<Map<string, FsEntry[]>>(new Map())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -101,6 +101,22 @@ export function ExplorerView(props: ViewProps): ReactNode {
     ctx.get<FilesService>('files')?.open(path, { mode })
   }
 
+  /** Reload one directory level (drop the cached children and refetch). */
+  const refreshDir = (path: string): void => {
+    setMenu(null)
+    setChildren((previous) => {
+      const next = new Map(previous)
+      next.delete(path)
+      return next
+    })
+    void fetchChildren(path)
+  }
+
+  const copyPath = (path: string): void => {
+    setMenu(null)
+    void navigator.clipboard?.writeText(path).catch(() => {})
+  }
+
   const toggle = (entry: FsEntry): void => {
     if (!entry.isDir) {
       openFile(entry.path, 'tab')
@@ -144,9 +160,8 @@ export function ExplorerView(props: ViewProps): ReactNode {
         title: entry.path,
         onClick: () => toggle(entry),
         onContextMenu: (event: MouseEvent) => {
-          if (entry.isDir) return
           event.preventDefault()
-          setMenu({ x: event.clientX, y: event.clientY, path: entry.path })
+          setMenu({ x: event.clientX, y: event.clientY, path: entry.path, isDir: entry.isDir })
         },
       },
       createElement('span', null, entry.isDir
@@ -180,6 +195,33 @@ export function ExplorerView(props: ViewProps): ReactNode {
   rows.push(...renderLevel(entries, 0))
 
   // Minimal file context menu (independent of the desk shell's own menu).
+  const menuItems: ReactNode[] = menu !== null && menu.isDir
+    ? [
+      createElement('div', {
+        key: 'refresh',
+        style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
+        onMouseDown: () => refreshDir(menu.path),
+      }, '刷新'),
+      createElement('div', {
+        key: 'copy',
+        style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
+        onMouseDown: () => copyPath(menu.path),
+      }, '复制路径'),
+    ]
+    : menu !== null
+      ? [
+        createElement('div', {
+          key: 'center',
+          style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
+          onMouseDown: () => openFile(menu.path, 'tab'),
+        }, '在中心打开'),
+        createElement('div', {
+          key: 'floating',
+          style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
+          onMouseDown: () => openFile(menu.path, 'floating'),
+        }, '在独立窗口打开'),
+      ]
+      : []
   const menuEl = menu === null ? null : createElement('div', {
     style: {
       position: 'fixed', left: menu.x, top: menu.y, zIndex: 90, minWidth: 140,
@@ -190,16 +232,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       color: 'var(--dsw-alias-label-primary, #1f2328)',
     },
     onMouseDown: (event: MouseEvent) => event.stopPropagation(),
-  },
-  createElement('div', {
-    style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-    onMouseDown: () => openFile(menu.path, 'tab'),
-  }, '在中心打开'),
-  createElement('div', {
-    style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-    onMouseDown: () => openFile(menu.path, 'floating'),
-  }, '在独立窗口打开'),
-  )
+  }, ...menuItems)
 
   return createElement('div', { className: 'dsh-wb-view' },
     rows,
