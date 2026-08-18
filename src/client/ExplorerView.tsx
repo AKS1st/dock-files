@@ -193,11 +193,11 @@ export function ExplorerView(props: ViewProps): ReactNode {
   },
   createElement('div', {
     style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-    onClick: () => openFile(menu.path, 'tab'),
+    onMouseDown: () => openFile(menu.path, 'tab'),
   }, '在中心打开'),
   createElement('div', {
     style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
-    onClick: () => openFile(menu.path, 'floating'),
+    onMouseDown: () => openFile(menu.path, 'floating'),
   }, '在独立窗口打开'),
   )
 
