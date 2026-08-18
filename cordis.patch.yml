@@ -1,0 +1,5 @@
+# desk-files bundle patch: mounts the file-explorer feature plugin row
+# (client half registers its panel/activity item against the workbench base).
+- insert:
+    - id: desk-files
+      name: 'desk-files'
