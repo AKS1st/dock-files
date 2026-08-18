@@ -26,7 +26,7 @@ const INLINE = {
   row: { display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', cursor: 'pointer', borderRadius: 4, fontSize: 13 } as const,
   dim: { opacity: 0.55 },
   err: { padding: '8px 12px', color: '#d1242f', fontSize: 12 } as const,
-  loading: { padding: '8px 12px', color: 'var(--dsw-text-secondary, #656d76)', fontSize: 12 } as const,
+  loading: { padding: '8px 12px', color: 'var(--dsw-alias-label-secondary, #656d76)', fontSize: 12 } as const,
 }
 
 export function ExplorerView(props: ViewProps): ReactNode {

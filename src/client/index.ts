@@ -4,13 +4,17 @@
  * `Context.workbench` augmentation; all runtime interaction goes through
  * ctx.workbench method calls (no value-import of the base bundle).
  */
-import { createElement } from 'react'
 import type {} from 'desk/client/contract'
-import type { WorkbenchContext, WorkbenchService } from 'desk/client/contract'
+import type { IconSpec, WorkbenchContext, WorkbenchService } from 'desk/client/contract'
 import { ExplorerView } from './ExplorerView'
 
 /** Requires the workbench base to be mounted. */
 export const inject = ['workbench']
+
+/** Folder icon (fill style, currentColor), rendered by the desk shell. */
+const FOLDER_ICON: IconSpec = {
+  path: 'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z',
+}
 
 /** Client plugin body. */
 export function apply(ctx: WorkbenchContext): void {
@@ -22,7 +26,7 @@ export function apply(ctx: WorkbenchContext): void {
   ctx.effect(() => service.registerActivityBarItem({
     id: 'files',
     title: 'Files',
-    icon: createElement('span', { style: { fontSize: 18 } }, '🗂'),
+    icon: FOLDER_ICON,
     order: 10,
     paneId: 'files',
   }), 'desk-files: activity item')
@@ -32,7 +36,7 @@ export function apply(ctx: WorkbenchContext): void {
     id: 'files',
     region: 'sideBar',
     title: 'Files',
-    icon: createElement('span', { style: { fontSize: 18 } }, '🗂'),
+    icon: FOLDER_ICON,
     order: 10,
     component: ExplorerView,
   }), 'desk-files: files panel')
