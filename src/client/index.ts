@@ -84,8 +84,9 @@ export function apply(ctx: WorkbenchContext): void {
   ctx.provide('files', files)
 
   // System entry: external paths (chat links, other plugins) route in.
+  // The editor only supports standalone-window mode, so always open floating.
   ctx.effect(() => workbench.registerOpenPathHandler((path, options) => {
-    files.open(path, { title: options?.title })
+    files.open(path, { title: options?.title, mode: 'floating' })
   }), 'dock-files: open-path handler')
 
   // Activity item: the left strip entry that reveals the files pane.

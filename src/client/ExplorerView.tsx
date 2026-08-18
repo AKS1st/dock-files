@@ -100,10 +100,10 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
   }, [sessionId])
 
-  const openFile = (path: string, mode: 'tab' | 'floating'): void => {
+  const openFile = (path: string): void => {
     setSelected(path)
     setMenu(null)
-    ctx.get<FilesService>('files')?.open(path, { mode })
+    ctx.get<FilesService>('files')?.open(path, { mode: 'floating' })
   }
 
   /** Reload one directory level (drop the cached children and refetch). */
@@ -124,7 +124,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
 
   const toggle = (entry: FsEntry): void => {
     if (!entry.isDir) {
-      openFile(entry.path, 'tab')
+      // Clicking a file opens it directly in an independent floating window
+      // (dock-editor only supports standalone-window mode).
+      openFile(entry.path)
       return
     }
     const willExpand = !expanded.has(entry.path)
@@ -199,10 +201,10 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }
   rows.push(...renderLevel(entries, 0))
 
-  // File context menu (independent of the dock shell's own menu). Items use
+  // File/dir context menu (independent of the dock shell's own menu). Items use
   // the .df-context-menu-item class for hover/active feedback; both mousedown
-  // (immediate) and click (full sequence) fire the action — the open helpers
-  // are idempotent, so a double fire just focuses the already-open tab.
+  // (immediate) and click (full sequence) fire the action — refresh and copy
+  // are idempotent, so a double fire is harmless.
   const menuItem = (key: string, label: string, action: () => void): ReactNode =>
     createElement('div', {
       key,
@@ -218,8 +220,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     ]
     : menu !== null
       ? [
-        menuItem('center', '在中心打开', () => openFile(menu.path, 'tab')),
-        menuItem('floating', '在独立窗口打开', () => openFile(menu.path, 'floating')),
+        menuItem('copy', '复制路径', () => copyPath(menu.path)),
       ]
       : []
   const menuEl = menu === null ? null : createElement('div', {
