@@ -1,12 +1,13 @@
 /**
- * File explorer view: a lazy directory tree browsing the active session's
- * working directory through the plugin's own /wb-files host route (typed
- * fetch, no base dependency beyond the view contract). Phase 1: single
- * level of expansion per directory, files are inert placeholders; file
- * opening lands in a later phase.
+ * Pure file browser: a lazy recursive directory tree over the active
+ * session's working directory (own /wb-files host route). Clicking a file
+ * dispatches through the file-domain service (`ctx.files.open`) to a
+ * registered file viewer (desk-editor) — this view never renders file
+ * content itself.
  */
 import { createElement, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ViewProps } from 'desk/client/contract'
+import type { FilesService } from './index'
 
 /** One wire row (host WbFsEntry shape). */
 interface FsEntry {
@@ -23,18 +24,20 @@ interface ListResponse {
 }
 
 const INLINE = {
-  row: { display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', cursor: 'pointer', borderRadius: 4, fontSize: 13 } as const,
+  row: { display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', cursor: 'pointer', borderRadius: 4, fontSize: 13, whiteSpace: 'nowrap' } as const,
   dim: { opacity: 0.55 },
+  selected: { background: 'var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.12))' } as const,
   err: { padding: '8px 12px', color: '#d1242f', fontSize: 12 } as const,
   loading: { padding: '8px 12px', color: 'var(--dsw-alias-label-secondary, #656d76)', fontSize: 12 } as const,
 }
 
 export function ExplorerView(props: ViewProps): ReactNode {
-  const { sessionId, active } = props
+  const { ctx, sessionId, active } = props
   const [root, setRoot] = useState<string | null>(null)
   const [entries, setEntries] = useState<FsEntry[] | null>(null)
   const [children, setChildren] = useState<Map<string, FsEntry[]>>(new Map())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -64,41 +67,53 @@ export function ExplorerView(props: ViewProps): ReactNode {
     if (active) void load()
   }, [active, load])
 
+  /** Fetch and cache one directory level. */
+  const fetchChildren = useCallback(async (path: string): Promise<void> => {
+    try {
+      const response = await fetch('/wb-files/list', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId, path }),
+      })
+      const json = (await response.json()) as ListResponse
+      if (json.ok !== true || json.value === undefined) {
+        throw new Error(json.error?.message ?? 'list failed')
+      }
+      setChildren((previous) => {
+        const next = new Map(previous)
+        next.set(path, json.value!.listing.entries)
+        return next
+      })
+    } catch {
+      // Expansion failure: leave the node collapsed.
+      setExpanded((previous) => {
+        const dropped = new Set(previous)
+        dropped.delete(path)
+        return dropped
+      })
+    }
+  }, [sessionId])
+
   const toggle = (entry: FsEntry): void => {
-    if (!entry.isDir) return
+    if (!entry.isDir) {
+      setSelected(entry.path)
+      // Route to the file domain — never render content here.
+      ctx.get<FilesService>('files')?.open(entry.path)
+      return
+    }
+    const willExpand = !expanded.has(entry.path)
     setExpanded((previous) => {
       const next = new Set(previous)
       if (next.has(entry.path)) {
         next.delete(entry.path)
-        return next
+      } else {
+        next.add(entry.path)
       }
-      next.add(entry.path)
-      void (async () => {
-        try {
-          const response = await fetch('/wb-files/list', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId, path: entry.path }),
-          })
-          const json = (await response.json()) as ListResponse
-          if (json.ok === true && json.value !== undefined) {
-            setChildren((previous) => {
-              const next = new Map(previous)
-              next.set(entry.path, json.value!.listing.entries)
-              return next
-            })
-          }
-        } catch {
-          // expansion failure: leave the node collapsed
-          setExpanded((previous) => {
-            const dropped = new Set(previous)
-            dropped.delete(entry.path)
-            return dropped
-          })
-        }
-      })()
       return next
     })
+    if (willExpand && !children.has(entry.path)) {
+      void fetchChildren(entry.path)
+    }
   }
 
   if (error !== null) {
@@ -106,6 +121,42 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }
   if (entries === null) {
     return createElement('div', { style: INLINE.loading }, loading ? 'Loading…' : 'No session')
+  }
+
+  /** Recursively render a level of entries with running indentation. */
+  const renderLevel = (list: FsEntry[], depth: number): ReactNode[] => {
+    const rows: ReactNode[] = []
+    for (const entry of list) {
+      const isExpanded = entry.isDir && expanded.has(entry.path)
+      rows.push(createElement('div', {
+        key: entry.path,
+        style: {
+          ...INLINE.row,
+          paddingLeft: 8 + depth * 16,
+          ...(entry.hidden ? INLINE.dim : {}),
+          ...(selected === entry.path ? INLINE.selected : {}),
+        },
+        title: entry.path,
+        onClick: () => toggle(entry),
+      },
+      createElement('span', null, entry.isDir
+        ? (isExpanded ? '▾' : '▸')
+        : '•'),
+      createElement('span', null, entry.name),
+      ))
+      if (isExpanded) {
+        const kids = children.get(entry.path)
+        if (kids === undefined) {
+          rows.push(createElement('div', {
+            key: `${entry.path}:loading`,
+            style: { ...INLINE.loading, paddingLeft: 24 + depth * 16 },
+          }, '…'))
+        } else {
+          rows.push(...renderLevel(kids, depth + 1))
+        }
+      }
+    }
+    return rows
   }
 
   const rows: ReactNode[] = []
@@ -116,35 +167,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       onClick: () => { setEntries(null); void load() },
     }, '↺ ', root))
   }
-  for (const entry of entries) {
-    rows.push(createElement('div', {
-      key: entry.path,
-      style: entry.hidden ? { ...INLINE.row, ...INLINE.dim } : INLINE.row,
-      title: entry.path,
-      onClick: () => toggle(entry),
-    },
-    createElement('span', null, entry.isDir
-      ? (expanded.has(entry.path) ? '▾' : '▸')
-      : '•'),
-    createElement('span', null, entry.name),
-    ))
-    if (entry.isDir && expanded.has(entry.path)) {
-      const kids = children.get(entry.path)
-      if (kids !== undefined) {
-        for (const kid of kids) {
-          rows.push(createElement('div', {
-            key: kid.path,
-            style: { ...INLINE.row, paddingLeft: 24, ...(kid.hidden ? INLINE.dim : {}) },
-            onClick: () => toggle(kid),
-          },
-          createElement('span', null, kid.isDir ? '▸' : '•'),
-          createElement('span', null, kid.name),
-          ))
-        }
-      } else {
-        rows.push(createElement('div', { key: `${entry.path}:loading`, style: INLINE.loading }, '…'))
-      }
-    }
-  }
+  rows.push(...renderLevel(entries, 0))
+
   return createElement('div', { className: 'dsh-wb-view' }, rows)
 }
