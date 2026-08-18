@@ -38,6 +38,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const [children, setChildren] = useState<Map<string, FsEntry[]>>(new Map())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -94,11 +95,15 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
   }, [sessionId])
 
+  const openFile = (path: string, mode: 'tab' | 'floating'): void => {
+    setSelected(path)
+    setMenu(null)
+    ctx.get<FilesService>('files')?.open(path, { mode })
+  }
+
   const toggle = (entry: FsEntry): void => {
     if (!entry.isDir) {
-      setSelected(entry.path)
-      // Route to the file domain — never render content here.
-      ctx.get<FilesService>('files')?.open(entry.path)
+      openFile(entry.path, 'tab')
       return
     }
     const willExpand = !expanded.has(entry.path)
@@ -138,6 +143,11 @@ export function ExplorerView(props: ViewProps): ReactNode {
         },
         title: entry.path,
         onClick: () => toggle(entry),
+        onContextMenu: (event: MouseEvent) => {
+          if (entry.isDir) return
+          event.preventDefault()
+          setMenu({ x: event.clientX, y: event.clientY, path: entry.path })
+        },
       },
       createElement('span', null, entry.isDir
         ? (isExpanded ? '▾' : '▸')
@@ -169,5 +179,30 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }
   rows.push(...renderLevel(entries, 0))
 
-  return createElement('div', { className: 'dsh-wb-view' }, rows)
+  // Minimal file context menu (independent of the desk shell's own menu).
+  const menuEl = menu === null ? null : createElement('div', {
+    style: {
+      position: 'fixed', left: menu.x, top: menu.y, zIndex: 90, minWidth: 140,
+      padding: 4, borderRadius: 8, fontSize: 13,
+      background: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+      border: '1px solid var(--dsw-alias-border-l2, #d8dbe0)',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+      color: 'var(--dsw-alias-label-primary, #1f2328)',
+    },
+    onMouseDown: (event: MouseEvent) => event.stopPropagation(),
+  },
+  createElement('div', {
+    style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
+    onClick: () => openFile(menu.path, 'tab'),
+  }, '在中心打开'),
+  createElement('div', {
+    style: { padding: '5px 10px', borderRadius: 5, cursor: 'pointer' },
+    onClick: () => openFile(menu.path, 'floating'),
+  }, '在独立窗口打开'),
+  )
+
+  return createElement('div', { className: 'dsh-wb-view' },
+    rows,
+    menuEl,
+  )
 }

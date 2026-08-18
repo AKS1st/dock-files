@@ -30,7 +30,7 @@ interface FileViewerDef {
 /** The file-domain service desk-files provides as `ctx.files`. */
 export interface FilesService {
   /** Open a file: dispatch to the matching viewer, carried by the workbench. */
-  open(path: string, options?: { title?: string }): void
+  open(path: string, options?: { title?: string; mode?: 'tab' | 'floating' }): void
   /** Register a file viewer (returns the disposer). */
   registerFileViewer(def: FileViewerDef): () => void
 }
@@ -49,7 +49,7 @@ function extOfPath(path: string): string {
 /** Build the file-domain service bound to the workbench carrier. */
 function createFilesService(workbench: WorkbenchService): FilesService {
   const viewers = new Map<string, FileViewerDef>()
-  const open = (path: string, options?: { title?: string }): void => {
+  const open = (path: string, options?: { title?: string; mode?: 'tab' | 'floating' }): void => {
     const ext = extOfPath(path)
     // Extension match first (registration order), then the default viewer.
     const matched = [...viewers.values()].find((v) => v.exts?.includes(ext))
@@ -58,7 +58,12 @@ function createFilesService(workbench: WorkbenchService): FilesService {
       console.warn(`[desk-files] no file viewer registered for "${path}" (install desk-editor)`)
       return
     }
-    workbench.openEditorView(matched.id, { path, title: options?.title ?? baseNameOf(path) })
+    const seed = { path, title: options?.title ?? baseNameOf(path) }
+    if (options?.mode === 'floating') {
+      workbench.openFloatingWindow(matched.id, matched.id, seed)
+    } else {
+      workbench.openEditorView(matched.id, seed)
+    }
   }
   const registerFileViewer = (def: FileViewerDef): (() => void) => {
     viewers.set(def.id, def)
