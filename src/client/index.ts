@@ -60,11 +60,7 @@ function createFilesService(workbench: WorkbenchService): FilesService {
       return
     }
     const seed = { path, title: options?.title ?? baseNameOf(path) }
-    if (options?.mode === 'floating') {
-      workbench.openFloatingWindow(matched.id, matched.id, seed)
-    } else {
-      workbench.openEditorView(matched.id, seed)
-    }
+    workbench.openView(matched.id, seed, { floating: options?.mode === 'floating' })
   }
   const registerFileViewer = (def: FileViewerDef): (() => void) => {
     viewers.set(def.id, def)
