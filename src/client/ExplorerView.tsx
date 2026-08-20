@@ -165,8 +165,11 @@ export function ExplorerView(props: ViewProps): ReactNode {
     if (active) void load()
   }, [active, load, sessionId])
 
-  /** Fetch and cache one directory level. */
-  const fetchChildren = useCallback(async (path: string): Promise<void> => {
+  /**
+   * Fetch and cache one directory level. `keepExpanded` (used by refresh
+   * flows) leaves the node as-is on failure instead of collapsing it.
+   */
+  const fetchChildren = useCallback(async (path: string, keepExpanded = false): Promise<void> => {
     try {
       const response = await fetch('/wb-files/list', {
         method: 'POST',
@@ -183,6 +186,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         return next
       })
     } catch {
+      if (keepExpanded) return
       // Expansion failure: leave the node collapsed.
       setExpanded((previous) => {
         const dropped = new Set(previous)
@@ -198,15 +202,14 @@ export function ExplorerView(props: ViewProps): ReactNode {
     ctx.get<FilesService>('files')?.open(path, { mode: 'floating' })
   }
 
-  /** Reload one directory level (drop the cached children and refetch). */
+  /**
+   * Refresh one directory level in place: refetch its children without
+   * clearing the current cache, so an expanded directory never collapses or
+   * flashes a spinner while refreshing (a failed refetch leaves it as-is).
+   */
   const refreshDir = (path: string): void => {
     setMenu(null)
-    setChildren((previous) => {
-      const next = new Map(previous)
-      next.delete(path)
-      return next
-    })
-    void fetchChildren(path)
+    void fetchChildren(path, true)
   }
 
   const copyPath = (path: string): void => {
@@ -271,7 +274,8 @@ export function ExplorerView(props: ViewProps): ReactNode {
         const value = await callFiles('create', { sessionId, parent, kind })
         const path = String(value.path ?? '')
         // Make the new entry visible so its inline rename box shows: reload
-        // the root, or expand + refetch a non-root parent directory.
+        // the root, or expand + refresh a non-root parent directory (the
+        // in-place refresh keeps the parent expanded and never collapses it).
         if (parent === root) {
           void load()
         } else {
@@ -280,12 +284,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
             next.add(parent)
             return next
           })
-          setChildren((previous) => {
-            const next = new Map(previous)
-            next.delete(parent)
-            return next
-          })
-          void fetchChildren(parent)
+          refreshDir(parent)
         }
         setRenaming({ path, value: String(value.name ?? baseNameOf(path)) })
       } catch (cause) {
