@@ -7,7 +7,7 @@
  */
 import { createElement, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { ViewProps } from 'dock/client/contract'
+import type { ViewProps } from './contract.ts'
 import type { FilesService } from './index'
 
 /** One wire row (host WbFsEntry shape). */

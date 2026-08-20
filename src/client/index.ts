@@ -6,8 +6,8 @@
  * do. Type-only imports only; all runtime collaboration goes through
  * ctx.workbench / ctx.files method calls.
  */
-import type {} from 'dock/client/contract'
-import type { IconSpec, WorkbenchContext, WorkbenchService } from 'dock/client/contract'
+import type {} from './contract.ts'
+import type { IconSpec, WorkbenchContext, WorkbenchService } from './contract.ts'
 import { ExplorerView } from './ExplorerView'
 import { mountStyles } from './styles'
 
