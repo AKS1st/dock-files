@@ -18,6 +18,14 @@ export declare function treeArrow(size?: number): ReactNode;
 export declare function treeCorner(size?: number): ReactNode;
 export declare function refreshIcon(size?: number, className?: string): ReactNode;
 export declare function copyIcon(size?: number): ReactNode;
+export declare function plusIcon(size?: number): ReactNode;
+export declare function editIcon(size?: number): ReactNode;
+export declare function trashIcon(size?: number): ReactNode;
+/** Open arrow (points up-right). */
+export declare function openIcon(size?: number): ReactNode;
+export declare function cutIcon(size?: number): ReactNode;
+export declare function pasteIcon(size?: number): ReactNode;
+export declare function newFolderIcon(size?: number): ReactNode;
 /** Open loading ring; consumers spin it with the .df-spin class. */
 export declare function loadingIcon(size?: number, className?: string): ReactNode;
 export declare function warningIcon(size?: number): ReactNode;

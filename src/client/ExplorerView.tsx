@@ -1,26 +1,36 @@
 /**
- * Pure file browser: a lazy recursive directory tree over the active
- * session's working directory (own /wb-files host route). Clicking a file
- * dispatches through the file-domain service (`ctx.files.open`) to a
- * registered file viewer (dock-editor) — this view never renders file
- * content itself.
+ * Pure file browser with file-manager operations: a lazy recursive directory
+ * tree over the active session's working directory (own /wb-files host
+ * route). Clicking a file dispatches through the file-domain service
+ * (`ctx.files.open`) to a registered file viewer (dock-editor) — this view
+ * never renders file content itself.
  *
  * Modern VSCode-style presentation: a toolbar (root directory + refresh +
  * collapse-all), per-type tinted file glyphs, tree guide lines, hover
- * action buttons, a modern context menu and styled states. All glyphs are
+ * action buttons, a modern context menu and styled states. The context menu
+ * carries the usual file-manager actions — new file / new folder (with
+ * inline rename), rename, copy / cut / paste, delete (confirmed), copy path,
+ * refresh — plus an empty-area menu for the root directory. All glyphs are
  * the vendored harness ic_ds_* icon set (see ./icons.ts).
  */
-import { createElement, Fragment, useCallback, useEffect, useSyncExternalStore, useState, type ReactNode } from 'react'
+import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ViewProps } from './contract.ts'
 import type { FilesService } from './index'
 import {
   chevronUpIcon,
   copyIcon,
+  cutIcon,
+  editIcon,
   fileIcon,
   folderIcon,
   loadingIcon,
+  newFolderIcon,
+  openIcon,
+  pasteIcon,
+  plusIcon,
   refreshIcon,
+  trashIcon,
   treeArrow,
   treeCorner,
   warningIcon,
@@ -40,17 +50,58 @@ interface ListResponse {
   error?: { code: string; message: string }
 }
 
+/** What the context menu was opened on. */
+type MenuTarget =
+  | { kind: 'file'; path: string }
+  | { kind: 'dir'; path: string }
+  | { kind: 'empty' }
+
 /** One open context menu. */
 interface MenuState {
   x: number
   y: number
+  target: MenuTarget
+}
+
+/** The explorer clipboard: one path in copy or cut (move) mode. */
+interface ClipboardState {
+  mode: 'copy' | 'cut'
   path: string
-  isDir: boolean
 }
 
 /** Stable no-op subscription/snapshot for useSyncExternalStore without the files service. */
 const NOOP_SUBSCRIBE = (): (() => void) => () => {}
 const NOOP_SNAPSHOT = (): number => 0
+
+/** Call one /wb-files host method; throws on non-ok responses. */
+async function callFiles(method: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const response = await fetch(`/wb-files/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const json = (await response.json()) as {
+    ok: boolean
+    value?: Record<string, unknown>
+    error?: { code: string; message: string }
+  }
+  if (json.ok !== true || json.value === undefined) {
+    throw new Error(json.error?.message ?? `${method} failed`)
+  }
+  return json.value
+}
+
+function baseNameOf(path: string): string {
+  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return at === -1 ? path : path.slice(at + 1)
+}
+
+/** Parent directory of a path, or null at the filesystem root. */
+function parentPathOf(path: string): string | null {
+  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  if (at === -1) return null
+  return at === 0 ? (path.startsWith('\\') ? '\\' : '/') : path.slice(0, at)
+}
 
 export function ExplorerView(props: ViewProps): ReactNode {
   const { ctx, sessionId, active } = props
@@ -66,6 +117,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [clipboard, setClipboard] = useState<ClipboardState | null>(null)
+  const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async (path?: string) => {
     setLoading(true)
@@ -94,6 +148,8 @@ export function ExplorerView(props: ViewProps): ReactNode {
     // reload from the new session's working directory.
     setChildren(new Map())
     setExpanded(new Set())
+    setClipboard(null)
+    setRenaming(null)
     if (active) void load()
   }, [active, load, sessionId])
 
@@ -152,6 +208,120 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setExpanded(new Set())
   }
 
+  /** Report a mutation error without tearing down the view. */
+  const reportError = (cause: unknown): void => {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    window.alert(message)
+  }
+
+  /** Refetch the directory that contains `path` (the root reloads fully). */
+  const refreshParentOf = (path: string): void => {
+    const parent = parentPathOf(path)
+    if (parent === null || parent === root) void load()
+    else refreshDir(parent)
+  }
+
+  const beginRename = (path: string): void => {
+    setMenu(null)
+    setSelected(path)
+    setRenaming({ path, value: baseNameOf(path) })
+  }
+
+  const cancelRename = (): void => setRenaming(null)
+
+  const commitRename = (): void => {
+    if (renaming === null) return
+    const { path, value } = renaming
+    const name = value.trim()
+    setRenaming(null)
+    if (name === '' || name === baseNameOf(path)) return
+    void (async () => {
+      try {
+        await callFiles('rename', { sessionId, path, name })
+        refreshParentOf(path)
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
+  /** Create a new entry and drop straight into inline rename. */
+  const startCreate = (kind: 'file' | 'dir', parent: string): void => {
+    setMenu(null)
+    void (async () => {
+      try {
+        const value = await callFiles('create', { sessionId, parent, kind })
+        const path = String(value.path ?? '')
+        // Make the new entry visible so its inline rename box shows: reload
+        // the root, or expand + refetch a non-root parent directory.
+        if (parent === root) {
+          void load()
+        } else {
+          setExpanded((previous) => {
+            const next = new Set(previous)
+            next.add(parent)
+            return next
+          })
+          setChildren((previous) => {
+            const next = new Map(previous)
+            next.delete(parent)
+            return next
+          })
+          void fetchChildren(parent)
+        }
+        setRenaming({ path, value: String(value.name ?? baseNameOf(path)) })
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
+  const setClip = (mode: 'copy' | 'cut', path: string): void => {
+    setMenu(null)
+    setSelected(path)
+    setClipboard({ mode, path })
+  }
+
+  /** Paste the clipboard item into `dest` (copy keeps the clipboard; cut clears it). */
+  const pasteInto = (dest: string): void => {
+    setMenu(null)
+    if (clipboard === null) return
+    const { mode, path: source } = clipboard
+    void (async () => {
+      try {
+        await callFiles(mode === 'copy' ? 'copy' : 'move', { sessionId, sources: [source], dest })
+        if (mode === 'cut') {
+          refreshParentOf(source)
+          setClipboard(null)
+        }
+        refreshParentOf(dest)
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
+  /** Delete one entry after confirmation (recursive for directories). */
+  const removePath = (path: string): void => {
+    setMenu(null)
+    if (!window.confirm(`确定删除 "${baseNameOf(path)}"？此操作不可恢复。`)) return
+    void (async () => {
+      try {
+        await callFiles('remove', { sessionId, paths: [path] })
+        setSelected((previous) => (previous === path ? null : previous))
+        setChildren((previous) => {
+          const next = new Map(previous)
+          next.delete(path)
+          return next
+        })
+        setClipboard((previous) => (previous?.path === path ? null : previous))
+        refreshParentOf(path)
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
   const toggle = (entry: FsEntry): void => {
     if (!entry.isDir) {
       // Clicking a file opens it directly in an independent floating window
@@ -182,6 +352,19 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
+  // Keep the (taller) context menu inside the viewport once it has laid out.
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (el === null || menu === null) return
+    const rect = el.getBoundingClientRect()
+    if (rect.right > window.innerWidth) {
+      el.style.left = `${Math.max(4, window.innerWidth - rect.width - 4)}px`
+    }
+    if (rect.bottom > window.innerHeight) {
+      el.style.top = `${Math.max(4, window.innerHeight - rect.height - 4)}px`
+    }
   }, [menu])
 
   if (error !== null) {
@@ -225,17 +408,28 @@ export function ExplorerView(props: ViewProps): ReactNode {
       const entry = list[index]
       const isLast = index === count - 1
       const isExpanded = entry.isDir && expanded.has(entry.path)
-      const rowClass = ['df-row', selected === entry.path ? 'df-row-selected' : '', entry.hidden ? 'df-hidden' : '']
-        .filter(Boolean)
-        .join(' ')
+      const isCut = clipboard?.mode === 'cut' && clipboard.path === entry.path
+      const isRenaming = renaming !== null && renaming.path === entry.path
+      const rowClass = [
+        'df-row',
+        selected === entry.path ? 'df-row-selected' : '',
+        entry.hidden ? 'df-hidden' : '',
+        isCut ? 'df-cut' : '',
+      ].filter(Boolean).join(' ')
       rows.push(createElement('div', {
         key: entry.path,
         className: rowClass,
         title: entry.path,
-        onClick: () => toggle(entry),
+        onClick: isRenaming ? undefined : () => toggle(entry),
         onContextMenu: (event: MouseEvent) => {
           event.preventDefault()
-          setMenu({ x: event.clientX, y: event.clientY, path: entry.path, isDir: entry.isDir })
+          event.stopPropagation()
+          setSelected(entry.path)
+          setMenu({
+            x: event.clientX,
+            y: event.clientY,
+            target: { kind: entry.isDir ? 'dir' : 'file', path: entry.path },
+          })
         },
       },
         ...(depth > 0 ? guideSlots(depth, ancestors, isLast) : []),
@@ -248,7 +442,35 @@ export function ExplorerView(props: ViewProps): ReactNode {
           entry.isDir
             ? folderIcon(isExpanded)
             : fileIcon(entry.name, files?.iconFor(entry.name), files?.fallbackIcon())),
-        createElement('span', { className: 'df-name' }, entry.name),
+        isRenaming
+          ? createElement('input', {
+            key: 'rename',
+            className: 'df-rename-input',
+            value: renaming!.value,
+            autoFocus: true,
+            onFocus: (event: FocusEvent) => {
+              // Preselect the name (basename without extension), like VSCode.
+              const el = event.target as HTMLInputElement
+              const dot = el.value.lastIndexOf('.')
+              el.setSelectionRange(0, dot > 0 ? dot : el.value.length)
+            },
+            onChange: (event: Event) => {
+              setRenaming({ path: entry.path, value: (event.target as HTMLInputElement).value })
+            },
+            onKeyDown: (event: KeyboardEvent) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                commitRename()
+              } else if (event.key === 'Escape') {
+                cancelRename()
+              }
+            },
+            onBlur: commitRename,
+            onClick: (event: MouseEvent) => event.stopPropagation(),
+            onDoubleClick: (event: MouseEvent) => event.stopPropagation(),
+            onContextMenu: (event: MouseEvent) => event.stopPropagation(),
+          })
+          : createElement('span', { className: 'df-name' }, entry.name),
         createElement('span', { className: 'df-row-actions' },
           entry.isDir
             ? createElement('button', {
@@ -283,27 +505,69 @@ export function ExplorerView(props: ViewProps): ReactNode {
     return rows
   }
 
-  // File/dir context menu (independent of the dock shell's own menu). Items
-  // use the .df-context-menu-item class for hover/active feedback; both
-  // mousedown (immediate) and click (full sequence) fire the action —
-  // refresh and copy are idempotent, so a double fire is harmless. A
+  // Context menu (independent of the dock shell's own menu). Items use the
+  // .df-context-menu-item class for hover/active feedback and fire once on
+  // click (mutations are not idempotent, unlike the old refresh/copy). A
   // full-screen backdrop below the menu closes it on outside click.
-  const menuItem = (key: string, icon: ReactNode, label: string, action: () => void): ReactNode =>
+  const menuItem = (
+    key: string,
+    icon: ReactNode,
+    label: string,
+    action?: () => void,
+    disabled = false,
+  ): ReactNode =>
     createElement('div', {
       key,
-      className: 'df-context-menu-item',
-      onMouseDown: action,
-      onClick: action,
+      className: `df-context-menu-item${disabled ? ' df-context-menu-item-disabled' : ''}`,
+      ...(disabled || action === undefined ? {} : { onClick: action }),
     }, icon, createElement('span', null, label))
 
-  const menuItems: ReactNode[] = menu !== null && menu.isDir
-    ? [
-      menuItem('refresh', refreshIcon(13), '刷新', () => refreshDir(menu.path)),
-      menuItem('copy', copyIcon(13), '复制路径', () => copyPath(menu.path)),
+  const separator = (key: string): ReactNode =>
+    createElement('div', { key, className: 'df-context-menu-sep' })
+
+  const buildMenuItems = (): ReactNode[] => {
+    if (menu === null) return []
+    const target = menu.target
+    if (target.kind === 'empty') {
+      if (root === null) return []
+      const label = clipboard === null ? '粘贴' : `粘贴 ${baseNameOf(clipboard.path)}`
+      return [
+        menuItem('new-file', plusIcon(13), '新建文件', () => startCreate('file', root)),
+        menuItem('new-dir', newFolderIcon(13), '新建文件夹', () => startCreate('dir', root)),
+        separator('s1'),
+        menuItem('paste', pasteIcon(13), label, () => pasteInto(root), clipboard === null),
+        separator('s2'),
+        menuItem('refresh', refreshIcon(13), '刷新', () => void load()),
+      ]
+    }
+    const path = target.path as string
+    if (target.kind === 'dir') {
+      const pasteLabel = clipboard === null ? '粘贴' : `粘贴 ${baseNameOf(clipboard.path)}`
+      return [
+        menuItem('new-file', plusIcon(13), '新建文件', () => startCreate('file', path)),
+        menuItem('new-dir', newFolderIcon(13), '新建文件夹', () => startCreate('dir', path)),
+        separator('s1'),
+        menuItem('refresh', refreshIcon(13), '刷新', () => refreshDir(path)),
+        menuItem('rename', editIcon(13), '重命名', () => beginRename(path)),
+        menuItem('copy', copyIcon(13), '复制', () => setClip('copy', path)),
+        menuItem('cut', cutIcon(13), '剪切', () => setClip('cut', path)),
+        menuItem('paste', pasteIcon(13), pasteLabel, () => pasteInto(path), clipboard === null),
+        separator('s2'),
+        menuItem('delete', trashIcon(13), '删除', () => removePath(path)),
+        menuItem('copy-path', copyIcon(13), '复制路径', () => copyPath(path)),
+      ]
+    }
+    return [
+      menuItem('open', openIcon(13), '打开', () => openFile(path)),
+      separator('s1'),
+      menuItem('rename', editIcon(13), '重命名', () => beginRename(path)),
+      menuItem('copy', copyIcon(13), '复制', () => setClip('copy', path)),
+      menuItem('cut', cutIcon(13), '剪切', () => setClip('cut', path)),
+      separator('s2'),
+      menuItem('delete', trashIcon(13), '删除', () => removePath(path)),
+      menuItem('copy-path', copyIcon(13), '复制路径', () => copyPath(path)),
     ]
-    : menu !== null
-      ? [menuItem('copy', copyIcon(13), '复制路径', () => copyPath(menu.path))]
-      : []
+  }
 
   const menuEl = menu === null ? null : createElement(Fragment, null,
     createElement('div', {
@@ -312,10 +576,12 @@ export function ExplorerView(props: ViewProps): ReactNode {
       onContextMenu: (event: MouseEvent) => event.preventDefault(),
     }),
     createElement('div', {
+      ref: menuRef,
       className: 'df-context-menu',
       style: { left: menu.x, top: menu.y },
       onMouseDown: (event: MouseEvent) => event.stopPropagation(),
-    }, ...menuItems),
+      onContextMenu: (event: MouseEvent) => event.preventDefault(),
+    }, ...buildMenuItems()),
   )
 
   const rows = renderLevel(entries, 0, [])
@@ -347,9 +613,25 @@ export function ExplorerView(props: ViewProps): ReactNode {
         ),
       ),
     ),
-    createElement('div', { className: 'df-tree' },
+    createElement('div', {
+      className: 'df-tree',
+      // Right-click on the empty area: root-level actions (new / paste).
+      onContextMenu: (event: MouseEvent) => {
+        if (event.target !== event.currentTarget) return
+        event.preventDefault()
+        setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
+      },
+    },
       ...(entries.length === 0
-        ? [createElement('div', { key: 'empty', className: 'df-empty' }, '空目录')]
+        ? [createElement('div', {
+          key: 'empty',
+          className: 'df-empty',
+          onContextMenu: (event: MouseEvent) => {
+            event.preventDefault()
+            event.stopPropagation()
+            setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
+          },
+        }, '空目录')]
         : rows),
     ),
     // Portal to <body>: a transform on an ancestor (dock-mode floating panel)

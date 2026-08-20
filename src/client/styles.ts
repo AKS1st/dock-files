@@ -251,6 +251,36 @@ const CSS = `
 .df-context-menu-item:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12)); }
 .df-context-menu-item:hover svg { color: var(--dsw-alias-label-primary, #1f2328); }
 .df-context-menu-item:active { background: var(--dsw-alias-interactive-bg-hover-accent, rgba(90, 120, 255, 0.22)); }
+/* Disabled item (paste with an empty clipboard): muted, no hover. */
+.df-context-menu-item-disabled { opacity: 0.45; cursor: default; }
+.df-context-menu-item-disabled:hover { background: transparent; }
+.df-context-menu-item-disabled:hover svg { color: var(--dsw-alias-label-secondary, #656d76); }
+/* Separator line between menu groups. */
+.df-context-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--dsw-alias-border-l2, #d8dbe0);
+}
+
+/* ── Inline rename input (replaces the row's name span) ── */
+.df-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
+  padding: 0 4px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--dsw-alias-label-primary, #1f2328);
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  border: 1px solid var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.55));
+  border-radius: 4px;
+  outline: none;
+}
+
+/* ── Cut items stay dimmed until pasted ── */
+.df-cut .df-type,
+.df-cut .df-name { opacity: 0.45; }
 `
 
 export function mountStyles(): () => void {

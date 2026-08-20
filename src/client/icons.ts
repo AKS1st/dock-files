@@ -2,19 +2,22 @@
  * Icon glyphs for the dock-files explorer.
  *
  * The chrome glyphs (tree arrow, tree corner, folder open/close, refresh,
- * copy, loading, warning, chevron) are vendored verbatim from the DSH
- * harness icon set `@deepseek-ai/dsh-client-ui-primitives` (ic_ds_* family,
- * same Figma source as the deepsuite icon library) — rendered with the same
+ * copy, loading, warning, chevron, plus, edit, trash, right-up) are vendored
+ * verbatim from the DSH harness icon set
+ * `@deepseek-ai/dsh-client-ui-primitives` (ic_ds_* family, same Figma source
+ * as the deepsuite icon library) — rendered with the same
  * `fill="currentColor"` convention so they follow the active theme exactly
  * like the harness shell's own icons. They are copied here (rather than
  * imported) so this plugin repo keeps building standalone, mirroring the
  * vendored `contract.ts` convention. Keep the path data in sync with
  * `packages/client/ui-primitives/src/icons/index.tsx` when it changes.
  *
- * The one glyph that is NOT in the harness set is the generic document
- * silhouette (drawn in the same ic_ds_ silhouette style); it is tinted per
- * file type (Seti-like muted palette) to give the VSCode-style type colour
- * coding requested for the tree, while the chrome stays theme-following.
+ * Glyphs that are NOT in the harness set — the generic document silhouette,
+ * the scissors (cut), the clipboard (paste) and the folder-plus (new folder)
+ * — are drawn in the same ic_ds_ silhouette style; the document silhouette is
+ * tinted per file type (Seti-like muted palette) to give the VSCode-style
+ * type colour coding requested for the tree, while the chrome stays
+ * theme-following.
  */
 import { createElement } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -161,6 +164,76 @@ const CHEVRON_UP: Glyph = {
   }],
 }
 
+/** ic_ds_plus_outline_16 — new file. */
+const PLUS: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [{
+    d: 'M8.64453 1.5V7.34961H14.5V8.65039H8.64453V14.5H7.34473V8.65039H1.5V7.34961H7.34473V1.5H8.64453Z',
+  }],
+}
+
+/** ic_ds_edit_outline_16 — rename. */
+const EDIT: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [{
+    d: 'M9.94076 1.34942C10.7047 0.90231 11.6503 0.902415 12.4143 1.34942C12.7061 1.52015 12.9688 1.79118 13.3104 2.13284C13.6521 2.47448 13.9231 2.73721 14.0939 3.02894C14.5408 3.79294 14.5409 4.73856 14.0939 5.50251C13.9231 5.79415 13.652 6.05704 13.3104 6.39861L6.65932 13.0497C6.28068 13.4284 6.00695 13.7108 5.66543 13.9097C5.32391 14.1085 4.94315 14.2074 4.42705 14.3498L3.24394 14.6761C2.77527 14.8054 2.34538 14.9262 2.00131 14.9684C1.65196 15.0112 1.17964 15.0013 0.810764 14.6325C0.441921 14.2637 0.432107 13.7913 0.47486 13.442C0.517035 13.0979 0.6379 12.668 0.767181 12.1993L1.09352 11.0162C1.23588 10.5001 1.33481 10.1193 1.5336 9.77784C1.7325 9.43632 2.0149 9.1626 2.39355 8.78395L9.04466 2.13284C9.38625 1.79126 9.64911 1.52016 9.94076 1.34942ZM15.5427 14.8398H7.55223L8.96707 13.425H15.5427V14.8398ZM3.39382 9.78422C2.965 10.213 2.84244 10.3436 2.75709 10.49C2.67183 10.6366 2.61862 10.8079 2.45733 11.3925L2.13099 12.5756C2.00183 13.0439 1.92194 13.3419 1.88863 13.5536C2.10041 13.5204 2.39872 13.4416 2.86764 13.3123L4.05075 12.9859C4.63544 12.8246 4.80669 12.7715 4.95323 12.6862C5.09968 12.6008 5.23022 12.4783 5.65905 12.0494L10.721 6.98644L8.45577 4.72121L3.39382 9.78422ZM11.7 2.57079C11.3774 2.38198 10.9777 2.38198 10.6551 2.57079C10.5602 2.62647 10.4487 2.72931 10.0449 3.13311L9.45604 3.72094L11.7213 5.98617L12.3102 5.39833C12.7139 4.99457 12.8168 4.88307 12.8725 4.78818C13.0613 4.46561 13.0612 4.06585 12.8725 3.74326C12.8169 3.64827 12.7146 3.53752 12.3102 3.13311C11.9057 2.72863 11.795 2.6264 11.7 2.57079Z',
+  }],
+}
+
+/** ic_ds_trash_outline_16 — delete. */
+const TRASH: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [{
+    d: 'M14.4782 4.84067L14.2138 10.1152C14.1102 12.1872 14.067 13.0115 13.3866 13.9607C13.1044 14.3546 12.7498 14.6912 12.3424 14.9535C11.8239 15.2872 11.2415 15.4316 10.5585 15.4998C9.88727 15.5668 9.04946 15.5656 7.99998 15.5656C6.95051 15.5656 6.1127 15.5668 5.44142 15.4998C4.75851 15.4316 4.17602 15.2872 3.65753 14.9535C3.25012 14.6912 2.89559 14.3546 2.61332 13.9607C1.93296 13.0115 1.88979 12.1872 1.78619 10.1152L1.52179 4.84067L2.89006 4.77277L3.15343 10.0463C3.26221 12.2218 3.32452 12.6015 3.72646 13.1624C3.90825 13.4161 4.13686 13.6334 4.39927 13.8023C4.66204 13.9714 5.00263 14.0792 5.57825 14.1367C6.16562 14.1953 6.92298 14.1963 7.99998 14.1963C9.07699 14.1963 9.83434 14.1953 10.4217 14.1367C10.9973 14.0792 11.3379 13.9714 11.6007 13.8023C11.8631 13.6334 12.0917 13.4161 12.2735 13.1624C12.6755 12.6015 12.7378 12.2218 12.8465 10.0463L13.1099 4.77277L14.4782 4.84067ZM5.43011 6.22849H6.7994V11.3909H5.43011V6.22849ZM9.20056 6.22849H10.5699V11.3909H9.20056V6.22849ZM8.53597 0.434431C9.17976 0.434431 9.6522 0.426926 10.0966 0.571258C10.2357 0.616451 10.3717 0.672554 10.502 0.738948C10.9182 0.951107 11.2464 1.29099 11.7015 1.74612L12.4978 2.54136H15.3742V3.91169H0.625732V2.54136H3.50218L4.29845 1.74612C4.75358 1.29099 5.08174 0.951107 5.49801 0.738948C5.62831 0.672554 5.76425 0.616451 5.90334 0.571258C6.34776 0.426926 6.82021 0.434431 7.46399 0.434431H8.53597ZM7.46399 1.80476C6.73208 1.80476 6.51641 1.81187 6.32617 1.87369C6.25545 1.89667 6.18668 1.92533 6.12041 1.95907C5.96398 2.03878 5.82348 2.16253 5.44142 2.54136H10.5585C10.1765 2.16253 10.036 2.03878 9.87955 1.95907C9.81329 1.92533 9.74452 1.89667 9.6738 1.87369C9.48356 1.81187 9.26789 1.80476 8.53597 1.80476H7.46399Z',
+  }],
+}
+
+/** ic_ds_right_up_outline_16 — open. */
+const OPEN: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [{
+    d: 'M13.588429 5.147807C13.588429 4.739638 13.587271 4.403003 13.582013 4.118684L1.703098 15.99968L0.85155 15.148178L0 14.294485L11.878915 2.413442C11.594721 2.408199 11.257569 2.409154 10.849776 2.409154H2.400594V0.000001H10.849776C11.644471 0.000001 12.338899 -0.001059 12.901622 0.059909C13.486363 0.123352 14.071136 0.265493 14.598303 0.648292C14.886598 0.857751 15.141981 1.110984 15.351433 1.399281C15.734578 1.926807 15.876362 2.512925 15.939743 3.098105C16.000775 3.660718 15.99968 4.353347 15.99968 5.147807V13.599133H13.588429V5.147807Z',
+  }],
+}
+
+/** Scissors (self-drawn ic_ds silhouette style) — cut: two finger rings
+ *  and a pair of blades splayed toward the right. */
+const CUT: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [
+    { d: 'M4.5 2.7a1.9 1.9 0 1 0 0 3.8 1.9 1.9 0 0 0 0-3.8Z' },
+    { d: 'M4.5 9.5a1.9 1.9 0 1 0 0 3.8 1.9 1.9 0 0 0 0-3.8Z' },
+    { d: 'M6.2 3.6L14.1 2.2l.4 1.3L6.6 5.4 6.2 3.6Z' },
+    { d: 'M6.2 9.6L14.1 7.4l.4 1.3L6.6 11.7 6.2 9.6Z' },
+  ],
+}
+
+/** Clipboard (self-drawn ic_ds silhouette style) — paste: a tabbed board
+ *  with rounded corners. */
+const PASTE: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [{
+    d: 'M6 2.8h4v.8h1.2a1.2 1.2 0 0 1 1.2 1.2v9a1.2 1.2 0 0 1-1.2 1.2H4.8a1.2 1.2 0 0 1-1.2-1.2v-9a1.2 1.2 0 0 1 1.2-1.2H6V2.8Z',
+  }],
+}
+
+/** Folder with a plus badge (self-drawn) — new folder: the closed-folder
+ *  glyph plus a plus centred on its body. */
+const FOLDER_PLUS: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [
+    FOLDER_CLOSE.layers[0],
+    { d: 'M7.3 6.5h1.4v.8h1.8v1.4H8.7v1.8H7.3V8.7H5.5V7.3h1.8V6.5Z' },
+  ],
+}
+
 // ── File-type glyph (harness silhouette style) ─────────────────────────────
 
 /**
@@ -262,6 +335,35 @@ export function refreshIcon(size = 14, className?: string): ReactNode {
 
 export function copyIcon(size = 14): ReactNode {
   return svgIcon(COPY, { size })
+}
+
+export function plusIcon(size = 14): ReactNode {
+  return svgIcon(PLUS, { size })
+}
+
+export function editIcon(size = 14): ReactNode {
+  return svgIcon(EDIT, { size })
+}
+
+export function trashIcon(size = 14): ReactNode {
+  return svgIcon(TRASH, { size })
+}
+
+/** Open arrow (points up-right). */
+export function openIcon(size = 14): ReactNode {
+  return svgIcon(OPEN, { size })
+}
+
+export function cutIcon(size = 14): ReactNode {
+  return svgIcon(CUT, { size })
+}
+
+export function pasteIcon(size = 14): ReactNode {
+  return svgIcon(PASTE, { size })
+}
+
+export function newFolderIcon(size = 14): ReactNode {
+  return svgIcon(FOLDER_PLUS, { size })
 }
 
 /** Open loading ring; consumers spin it with the .df-spin class. */

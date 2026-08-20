@@ -1,15 +1,18 @@
 /**
- * Host half of dock-files: the /wb-files JSON API (single-level directory
- * listing, browser-trust fenced like the /api gateway). Stripped and
+ * Host half of dock-files: the /wb-files JSON API — single-level directory
+ * listing plus the file-manager mutations (new file/folder, rename, copy,
+ * move, delete), browser-trust fenced like the /api gateway. Stripped and
  * simplified from dsh-better-sidebar (MIT): fs-tree / wire / trust-fence
  * helpers are copied here because the plugin must not depend on another
  * plugin's internals.
  *
  * All operations are conversation-scoped: requests carry a sessionId and
  * the session's authoritative cwd comes from the session store (falling
- * back to the process cwd while a session is hydrating).
+ * back to the process cwd while a session is hydrating). Every target path
+ * is canonicalized with realpath and must stay inside the session
+ * workspace; writes never overwrite — colliding names get a numeric suffix.
  */
-import { opendir, realpath } from 'node:fs/promises'
+import { cp, mkdir, opendir, realpath, rename as fsRename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 
@@ -75,6 +78,22 @@ function writeError(res: ServerResponse, error: unknown): void {
 function stringOrUndefined(payload: unknown, key: string): string | undefined {
   const value = (payload as Record<string, unknown> | null)?.[key]
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/** Required string field. */
+function stringOf(payload: unknown, key: string): string {
+  const value = stringOrUndefined(payload, key)
+  if (value === undefined) throw new WbError('bad-request', `missing "${key}"`, 400)
+  return value
+}
+
+/** Required non-empty array of non-empty strings. */
+function stringArrayOf(payload: unknown, key: string): string[] {
+  const value = (payload as Record<string, unknown> | null)?.[key]
+  if (!Array.isArray(value) || value.length === 0 || !value.every((item) => typeof item === 'string' && item !== '')) {
+    throw new WbError('bad-request', `"${key}" must be a non-empty array of paths`, 400)
+  }
+  return value as string[]
 }
 
 // ── fs-tree helpers (stripped from dsh-better-sidebar/src/fs-tree.ts) ─────
@@ -178,6 +197,134 @@ async function resolveWorkspacePath(cwd: string, raw: string): Promise<string> {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+// ── fs-mutation helpers (new / rename / copy / move / remove) ─────────────
+
+/** A new basename must be a plain name: no separators, no dot paths. */
+function validateBasename(name: string): void {
+  if (name === '' || name === '.' || name === '..') {
+    throw new WbError('bad-request', 'name must be a valid file name', 400)
+  }
+  if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
+    throw new WbError('bad-request', 'name must not contain path separators', 400)
+  }
+}
+
+/** Split "新建文件.txt" into ["新建文件", ".txt"]; dotfiles keep the whole name. */
+function splitExt(name: string): [string, string] {
+  const at = name.lastIndexOf('.')
+  if (at <= 0) return [name, '']
+  return [name.slice(0, at), name.slice(at)]
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** First free name "base", "base 2", "base 3" … under `dir` (ext preserved). */
+async function uniqueName(dir: string, base: string): Promise<string> {
+  const [stem, ext] = splitExt(base)
+  for (let counter = 1; ; counter += 1) {
+    const candidate = counter === 1 ? base : `${stem} ${counter}${ext}`
+    if (!(await pathExists(join(dir, candidate)))) return candidate
+  }
+}
+
+/** Create a new file or directory with a unique default name (never overwrites). */
+async function createEntry(cwd: string, parent: string, kind: 'file' | 'dir'): Promise<{ path: string; name: string }> {
+  const dir = await resolveWorkspacePath(cwd, parent)
+  if (kind === 'file') {
+    const name = await uniqueName(dir, '新建文件.txt')
+    await writeFile(join(dir, name), '', { flag: 'wx' })
+    return { path: join(dir, name), name }
+  }
+  const name = await uniqueName(dir, '新建文件夹')
+  await mkdir(join(dir, name))
+  return { path: join(dir, name), name }
+}
+
+/** Rename the basename of a path in place (same directory). */
+async function renameEntry(cwd: string, source: string, name: string): Promise<{ path: string }> {
+  validateBasename(name)
+  const from = await resolveWorkspacePath(cwd, source)
+  const target = await resolveWorkspacePath(cwd, join(dirname(from), name))
+  if (target === from) return { path: from } // same name: no-op
+  if (await pathExists(target)) {
+    throw new WbError('fs-error', `"${name}" already exists`, 409)
+  }
+  await fsRename(from, target)
+  return { path: target }
+}
+
+/** Reject copying/moving a directory into itself or a descendant. */
+function assertNotSelfNested(from: string, destDir: string, isDir: boolean, verb: 'copy' | 'move'): void {
+  if (!isDir) return
+  const rel = relative(from, destDir)
+  if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) {
+    throw new WbError('bad-request', `cannot ${verb} a directory into itself`, 400)
+  }
+}
+
+/** Copy sources into `dest` with unique names (never overwrites). */
+async function copyEntries(cwd: string, sources: string[], dest: string): Promise<{ created: string[] }> {
+  const destDir = await resolveWorkspacePath(cwd, dest)
+  const created: string[] = []
+  for (const raw of sources) {
+    const from = await resolveWorkspacePath(cwd, raw)
+    const info = await stat(from).catch(() => {
+      throw new WbError('fs-error', `"${raw}" does not exist`, 404)
+    })
+    assertNotSelfNested(from, destDir, info.isDirectory(), 'copy')
+    const name = await uniqueName(destDir, basename(from))
+    const to = join(destDir, name)
+    await cp(from, to, { recursive: true, errorOnExist: true })
+    created.push(to)
+  }
+  return { created }
+}
+
+/** Move sources into `dest` with unique names (never overwrites). */
+async function moveEntries(cwd: string, sources: string[], dest: string): Promise<{ moved: string[] }> {
+  const destDir = await resolveWorkspacePath(cwd, dest)
+  const moved: string[] = []
+  for (const raw of sources) {
+    const from = await resolveWorkspacePath(cwd, raw)
+    const info = await stat(from).catch(() => {
+      throw new WbError('fs-error', `"${raw}" does not exist`, 404)
+    })
+    assertNotSelfNested(from, destDir, info.isDirectory(), 'move')
+    if (dirname(from) === destDir) {
+      moved.push(from) // already here: no-op
+      continue
+    }
+    const name = await uniqueName(destDir, basename(from))
+    const to = join(destDir, name)
+    await fsRename(from, to)
+    moved.push(to)
+  }
+  return { moved }
+}
+
+/** Recursively remove entries (no trash bin — client confirms first). */
+async function removeEntries(cwd: string, paths: string[]): Promise<{ removed: string[] }> {
+  const removed: string[] = []
+  for (const raw of paths) {
+    const target = await resolveWorkspacePath(cwd, raw)
+    await rm(target, { recursive: true, force: false }).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new WbError('fs-error', `"${raw}" does not exist`, 404)
+      }
+      throw error
+    })
+    removed.push(target)
+  }
+  return { removed }
 }
 
 // ── Trust fence (stripped from dsh-better-sidebar/src/trust-fence.ts) ─────
@@ -284,13 +431,42 @@ export function apply(ctx: WbContext): void {
       }
       try {
         const payload = await readJsonBody(req)
+        const sessionId = stringOrUndefined(payload, 'sessionId')
+        const cwd = sessionCwdOf(ctx, sessionId)
         if (method === 'list') {
-          const sessionId = stringOrUndefined(payload, 'sessionId')
           const raw = stringOrUndefined(payload, 'path')
-          const cwd = sessionCwdOf(ctx, sessionId)
           const target = raw === undefined ? cwd : await resolveWorkspacePath(cwd, raw)
           const listing = await listDirectory(target)
           writeOk(res, { listing, cwd })
+          return
+        }
+        if (method === 'create') {
+          const parent = stringOf(payload, 'parent')
+          const kind = stringOf(payload, 'kind')
+          if (kind !== 'file' && kind !== 'dir') {
+            throw new WbError('bad-request', 'kind must be "file" or "dir"', 400)
+          }
+          writeOk(res, await createEntry(cwd, parent, kind))
+          return
+        }
+        if (method === 'rename') {
+          const path = stringOf(payload, 'path')
+          const name = stringOf(payload, 'name')
+          writeOk(res, await renameEntry(cwd, path, name))
+          return
+        }
+        if (method === 'copy' || method === 'move') {
+          const sources = stringArrayOf(payload, 'sources')
+          const dest = stringOf(payload, 'dest')
+          const value = method === 'copy'
+            ? await copyEntries(cwd, sources, dest)
+            : await moveEntries(cwd, sources, dest)
+          writeOk(res, value)
+          return
+        }
+        if (method === 'remove') {
+          const paths = stringArrayOf(payload, 'paths')
+          writeOk(res, await removeEntries(cwd, paths))
           return
         }
         writeError(res, new WbError('not-found', `unknown /wb-files method "${method}"`, 404))
