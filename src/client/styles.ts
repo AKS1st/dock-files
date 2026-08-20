@@ -293,6 +293,22 @@ const CSS = `
   border-radius: 6px;
 }
 
+/* ── Focusable panel (Ctrl+V local-file paste) — no visible focus ring ── */
+.df-view:focus,
+.df-view:focus-visible { outline: none; }
+
+/* ── Upload progress: a 1px bar pinned to the panel's bottom ── */
+.df-progress {
+  flex: none;
+  height: 1px;
+  overflow: hidden;
+}
+.df-progress-fill {
+  height: 1px;
+  background: #0969da;
+  transition: width 0.12s linear;
+}
+
 /* ── Dialog (themed replacement for the native confirm/alert) ── */
 .df-dialog-backdrop {
   position: fixed;

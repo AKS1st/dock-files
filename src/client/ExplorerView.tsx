@@ -13,8 +13,11 @@
  * clipboard, delete (confirmed), copy path, refresh — plus an empty-area
  * menu for the root directory. Drag & drop: entries can be dragged onto
  * directories (or the empty area) to move them, and OS files can be dropped
- * in to import copies. All glyphs are the vendored harness ic_ds_* icon set
- * (see ./icons.ts).
+ * in to import copies. Local files copied in the OS can also be pasted with
+ * Ctrl+V while the panel is focused (the browser only exposes them through
+ * the paste event). Transfers are serialized (one at a time, others are
+ * prompted to wait) and show a 1px progress bar at the panel's bottom.
+ * All glyphs are the vendored harness ic_ds_* icon set (see ./icons.ts).
  */
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -119,13 +122,52 @@ function parentPathOf(path: string): string | null {
   return at === 0 ? (path.startsWith('\\') ? '\\' : '/') : path.slice(0, at)
 }
 
-/** Read a Blob as a base64 data URL (used for clipboard images). */
+/** Read a Blob as a base64 data URL (used for clipboard images and uploads). */
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
     reader.onerror = () => reject(reader.error ?? new Error('failed to read image'))
     reader.readAsDataURL(blob)
+  })
+}
+
+/** One file handed to the upload pipeline (mime set → saveImage route). */
+interface UploadItem {
+  name: string
+  blob: Blob
+  mime?: string
+}
+
+/**
+ * XHR POST that reports request-body progress (fetch has no upload
+ * progress events); resolves with the API value, rejects on non-ok bodies.
+ */
+function xhrUpload(url: string, body: string, onProgress: (loaded: number) => void): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url)
+    xhr.setRequestHeader('content-type', 'application/json')
+    xhr.upload.onprogress = (event: ProgressEvent) => {
+      if (event.lengthComputable && event.loaded > 0) onProgress(event.loaded)
+    }
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText) as {
+          ok: boolean
+          value?: Record<string, unknown>
+          error?: { code: string; message: string }
+        }
+        if (json.ok !== true || json.value === undefined) {
+          throw new Error(json.error?.message ?? 'upload failed')
+        }
+        resolve(json.value)
+      } catch (cause) {
+        reject(cause)
+      }
+    }
+    xhr.onerror = () => reject(new Error('upload failed'))
+    xhr.send(body)
   })
 }
 
@@ -153,7 +195,15 @@ export function ExplorerView(props: ViewProps): ReactNode {
   /** Internal drag: the path being dragged (dimmed), and the highlighted drop target. */
   const [dragSource, setDragSource] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
+  /** Upload pipeline: one transfer at a time; progress 0..1 drives the 1px bar. */
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  /** Ref mirror of `uploading` so stale closures (paste/drag listeners) see the live guard. */
+  const uploadingRef = useRef(false)
+  /** Ctrl+V paste target: the last clicked/right-clicked directory (null = root). */
+  const [pasteDir, setPasteDir] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const viewRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async (path?: string) => {
     setLoading(true)
@@ -186,6 +236,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setRenaming(null)
     setDragSource(null)
     setDragOver(null)
+    setPasteDir(null)
     if (active) void load()
   }, [active, load, sessionId])
 
@@ -405,42 +456,68 @@ export function ExplorerView(props: ViewProps): ReactNode {
         const item = items.find((entry) => entry.types.includes(imageType))
         if (item === undefined) return
         const blob = await item.getType(imageType)
-        const dataUrl = await blobToDataUrl(blob)
-        await callFiles('saveImage', {
-          sessionId,
-          parent: dest,
-          data: dataUrl.slice(dataUrl.indexOf(',') + 1),
-          mime: imageType,
-        })
-        refreshDirContents(dest)
+        runUpload([{ name: 'image', blob, mime: imageType }], dest)
       } catch (cause) {
         reportError(cause)
       }
     })()
   }
 
-  /** Save OS files dropped into the explorer into `dest` (unique names). */
-  const uploadFiles = (files: FileList, dest: string): void => {
+  /**
+   * Serialized upload pipeline: one transfer at a time, driving the 1px
+   * progress bar at the panel's bottom. An additional upload while one is
+   * running is rejected with a themed notice.
+   */
+  const runUpload = (items: UploadItem[], dest: string): void => {
     setMenu(null)
-    // Dropped folders surface as zero-byte, empty-type File entries — skip them.
-    const list = Array.from(files).filter((file) => !(file.size === 0 && file.type === ''))
-    if (list.length === 0) return
+    if (uploadingRef.current) {
+      alertDialog('请等上一个上传任务完成')
+      return
+    }
+    if (items.length === 0) return
+    uploadingRef.current = true
+    setUploading(true)
+    setUploadProgress(0)
     void (async () => {
       try {
-        for (const file of list) {
-          const dataUrl = await blobToDataUrl(file)
-          await callFiles('upload', {
+        // Read every file first so the progress total is known up front.
+        const prepared = await Promise.all(items.map(async (item) => {
+          const dataUrl = await blobToDataUrl(item.blob)
+          const body = JSON.stringify({
             sessionId,
             parent: dest,
-            name: file.name !== '' ? file.name : '文件',
+            name: item.name,
+            ...(item.mime !== undefined ? { mime: item.mime } : {}),
             data: dataUrl.slice(dataUrl.indexOf(',') + 1),
           })
+          return { body, method: item.mime !== undefined ? 'saveImage' : 'upload' }
+        }))
+        const totalBytes = prepared.reduce((sum, item) => sum + item.body.length, 0)
+        let doneBytes = 0
+        for (const item of prepared) {
+          await xhrUpload(`/wb-files/${item.method}`, item.body, (loaded) => {
+            setUploadProgress(totalBytes === 0 ? 1 : (doneBytes + loaded) / totalBytes)
+          })
+          doneBytes += item.body.length
         }
+        setUploadProgress(1)
         refreshDirContents(dest)
       } catch (cause) {
         reportError(cause)
+      } finally {
+        uploadingRef.current = false
+        setUploading(false)
+        setUploadProgress(0)
       }
     })()
+  }
+
+  /** Import OS files (drag-in or Ctrl+V paste) into `dest` (unique names). */
+  const uploadFiles = (files: FileList, dest: string): void => {
+    // Dropped folders surface as zero-byte, empty-type File entries — skip them.
+    const list = Array.from(files).filter((file) => !(file.size === 0 && file.type === ''))
+    if (list.length === 0) return
+    runUpload(list.map((file) => ({ name: file.name !== '' ? file.name : '文件', blob: file })), dest)
   }
 
   /** Move an entry dragged inside the tree into `dest` (never overwrites). */
@@ -537,6 +614,26 @@ export function ExplorerView(props: ViewProps): ReactNode {
     return () => window.removeEventListener('keydown', onKey)
   }, [dialog])
 
+  // Local-file paste: the browser only exposes OS-copied files through the
+  // paste event (clipboard.read() cannot), so Ctrl+V imports them while the
+  // panel has focus. Text fields (e.g. the inline rename box) are skipped.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent): void => {
+      const el = viewRef.current
+      if (el === null || root === null) return
+      const active = document.activeElement
+      if (active === null || !el.contains(active)) return
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return
+      const files = event.clipboardData?.files
+      if (files === undefined || files.length === 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      uploadFiles(files, pasteDir ?? root)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [pasteDir, root, sessionId])
+
   // Keep the (taller) context menu inside the viewport once it has laid out.
   useLayoutEffect(() => {
     const el = menuRef.current
@@ -606,11 +703,15 @@ export function ExplorerView(props: ViewProps): ReactNode {
         className: rowClass,
         title: entry.path,
         draggable: !isRenaming,
-        onClick: isRenaming ? undefined : () => toggle(entry),
+        onClick: isRenaming ? undefined : () => {
+          if (entry.isDir) setPasteDir(entry.path)
+          toggle(entry)
+        },
         onContextMenu: (event: MouseEvent) => {
           event.preventDefault()
           event.stopPropagation()
           setSelected(entry.path)
+          if (entry.isDir) setPasteDir(entry.path)
           setMenu({
             x: event.clientX,
             y: event.clientY,
@@ -861,7 +962,18 @@ export function ExplorerView(props: ViewProps): ReactNode {
 
   const rows = renderLevel(entries, 0, [])
 
-  return createElement('div', { className: 'df-view' },
+  return createElement('div', {
+    ref: viewRef,
+    className: 'df-view',
+    tabIndex: 0,
+    // Focus the panel so Ctrl+V pastes OS-copied files into it; leave
+    // text fields (the inline rename box) focused.
+    onMouseDown: (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
+      if (document.activeElement !== viewRef.current) viewRef.current?.focus()
+    },
+  },
     createElement('div', { className: 'df-toolbar' },
       createElement('div', {
         className: 'df-toolbar-name',
@@ -894,6 +1006,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       onContextMenu: (event: MouseEvent) => {
         if (event.target !== event.currentTarget) return
         event.preventDefault()
+        setPasteDir(null)
         setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
         probeClipboardImage()
       },
@@ -928,6 +1041,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
           onContextMenu: (event: MouseEvent) => {
             event.preventDefault()
             event.stopPropagation()
+            setPasteDir(null)
             setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
             probeClipboardImage()
           },
@@ -952,6 +1066,14 @@ export function ExplorerView(props: ViewProps): ReactNode {
         }, '空目录')]
         : rows),
     ),
+    // 1px upload progress bar pinned to the panel's bottom edge.
+    ...(uploading
+      ? [createElement('div', { key: 'progress', className: 'df-progress' },
+        createElement('div', {
+          className: 'df-progress-fill',
+          style: { width: `${Math.round(uploadProgress * 100)}%` },
+        }))]
+      : []),
     // Portal to <body>: a transform on an ancestor (dock-mode floating panel)
     // would otherwise turn the menu's fixed coordinates into panel-relative
     // ones and render it off-screen.
