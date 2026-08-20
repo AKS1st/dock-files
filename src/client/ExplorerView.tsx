@@ -25,6 +25,8 @@ import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRe
 import { createPortal } from 'react-dom'
 import type { ViewProps } from './contract.ts'
 import type { FilesService } from './index'
+import { translate } from './i18n'
+import { useLocale } from './hooks'
 import {
   chevronUpIcon,
   copyIcon,
@@ -179,6 +181,12 @@ export function ExplorerView(props: ViewProps): ReactNode {
   // Re-render when a viewer (re)registers with an icon (plugin update / HMR);
   // icons resolve through the files service at render time.
   useSyncExternalStore(files?.subscribe ?? NOOP_SUBSCRIBE, files?.getIconVersion ?? NOOP_SNAPSHOT)
+  // Locale-aware copy (re-renders on DSH locale switch).
+  const locale = useLocale(ctx)
+  const t = useCallback(
+    (key: string, params?: Record<string, string | number>) => translate(locale, key, params),
+    [locale],
+  )
   const [root, setRoot] = useState<string | null>(null)
   const [entries, setEntries] = useState<FsEntry[] | null>(null)
   const [children, setChildren] = useState<Map<string, FsEntry[]>>(new Map())
@@ -315,7 +323,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       kind: 'confirm',
       message,
       onConfirm,
-      confirmLabel: options?.confirmLabel ?? '确定',
+      confirmLabel: options?.confirmLabel ?? 'ok',
       danger: options?.danger,
     })
   }
@@ -367,7 +375,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setMenu(null)
     void (async () => {
       try {
-        const value = await callFiles('create', { sessionId, parent, kind })
+        const value = await callFiles('create', { sessionId, parent, kind, locale })
         const path = String(value.path ?? '')
         // Make the new entry visible so its inline rename box shows: reload
         // the root, or expand + refresh a non-root parent directory (the
@@ -444,7 +452,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     void (async () => {
       try {
         if (typeof navigator.clipboard === 'undefined' || typeof navigator.clipboard.read !== 'function') {
-          alertDialog('当前浏览器不支持读取剪贴板图片')
+          alertDialog(t('clipboardUnsupported'))
           return
         }
         const items = await navigator.clipboard.read()
@@ -452,7 +460,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
           .map((item) => item.types.find((type) => type.startsWith('image/')))
           .find((type) => type !== undefined)
         if (imageType === undefined) {
-          alertDialog('剪贴板中没有图片')
+          alertDialog(t('clipboardNoImage'))
           return
         }
         const item = items.find((entry) => entry.types.includes(imageType))
@@ -473,7 +481,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const runUpload = (items: UploadItem[], dest: string): void => {
     setMenu(null)
     if (uploadingRef.current) {
-      alertDialog('请等上一个上传任务完成')
+      alertDialog(t('uploadBusy'))
       return
     }
     if (items.length === 0) return
@@ -519,7 +527,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     // Dropped folders surface as zero-byte, empty-type File entries — skip them.
     const list = Array.from(files).filter((file) => !(file.size === 0 && file.type === ''))
     if (list.length === 0) return
-    runUpload(list.map((file) => ({ name: file.name !== '' ? file.name : '文件', blob: file })), dest)
+    runUpload(list.map((file) => ({ name: file.name !== '' ? file.name : t('fileFallbackName'), blob: file })), dest)
   }
 
   /** Move an entry dragged inside the tree into `dest` (never overwrites). */
@@ -555,7 +563,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   /** Delete one entry after a themed confirmation (recursive for directories). */
   const removePath = (path: string): void => {
     setMenu(null)
-    confirmDialog(`确定删除 "${baseNameOf(path)}"？此操作不可恢复。`, () => {
+    confirmDialog(t('confirmDelete', { name: baseNameOf(path) }), () => {
       void (async () => {
         try {
           await callFiles('remove', { sessionId, paths: [path] })
@@ -571,7 +579,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
           reportError(cause)
         }
       })()
-    }, { confirmLabel: '删除', danger: true })
+    }, { confirmLabel: t('delete'), danger: true })
   }
 
   const toggle = (entry: FsEntry): void => {
@@ -657,7 +665,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   if (entries === null) {
     return createElement('div', { className: 'df-state' },
       loading ? loadingIcon(14, 'df-spin') : null,
-      createElement('span', null, loading ? '加载中…' : '无会话'))
+      createElement('span', null, loading ? t('loading') : t('noSession')))
   }
 
   /**
@@ -802,13 +810,13 @@ export function ExplorerView(props: ViewProps): ReactNode {
           entry.isDir
             ? createElement('button', {
               className: 'df-row-action',
-              title: '刷新',
+              title: t('refresh'),
               onClick: (event: MouseEvent) => { event.stopPropagation(); refreshDir(entry.path) },
             }, refreshIcon(12))
             : null,
           createElement('button', {
             className: 'df-row-action',
-            title: '复制路径',
+            title: t('copyPath'),
             onClick: (event: MouseEvent) => { event.stopPropagation(); copyPath(entry.path) },
           }, copyIcon(12)),
         ),
@@ -858,48 +866,48 @@ export function ExplorerView(props: ViewProps): ReactNode {
     // The "paste image" item only shows when the clipboard probe found an image.
     const pasteImageItem = (dest: string): ReactNode[] =>
       imageProbe === 'has'
-        ? [menuItem('paste-image', imageIcon(13), '粘贴图片', () => pasteImageInto(dest))]
+        ? [menuItem('paste-image', imageIcon(13), t('pasteImage'), () => pasteImageInto(dest))]
         : []
     if (target.kind === 'empty') {
       if (root === null) return []
-      const label = clipboard === null ? '粘贴' : `粘贴 ${baseNameOf(clipboard.path)}`
+      const label = clipboard === null ? t('paste') : t('pasteWithName', { name: baseNameOf(clipboard.path) })
       return [
-        menuItem('new-file', plusIcon(13), '新建文件', () => startCreate('file', root)),
-        menuItem('new-dir', newFolderIcon(13), '新建文件夹', () => startCreate('dir', root)),
+        menuItem('new-file', plusIcon(13), t('newFile'), () => startCreate('file', root)),
+        menuItem('new-dir', newFolderIcon(13), t('newFolder'), () => startCreate('dir', root)),
         separator('s1'),
         menuItem('paste', pasteIcon(13), label, () => pasteInto(root), clipboard === null),
         ...pasteImageItem(root),
         separator('s2'),
-        menuItem('refresh', refreshIcon(13), '刷新', () => void load()),
+        menuItem('refresh', refreshIcon(13), t('refresh'), () => void load()),
       ]
     }
     const path = target.path as string
     if (target.kind === 'dir') {
-      const pasteLabel = clipboard === null ? '粘贴' : `粘贴 ${baseNameOf(clipboard.path)}`
+      const pasteLabel = clipboard === null ? t('paste') : t('pasteWithName', { name: baseNameOf(clipboard.path) })
       return [
-        menuItem('new-file', plusIcon(13), '新建文件', () => startCreate('file', path)),
-        menuItem('new-dir', newFolderIcon(13), '新建文件夹', () => startCreate('dir', path)),
+        menuItem('new-file', plusIcon(13), t('newFile'), () => startCreate('file', path)),
+        menuItem('new-dir', newFolderIcon(13), t('newFolder'), () => startCreate('dir', path)),
         separator('s1'),
-        menuItem('refresh', refreshIcon(13), '刷新', () => refreshDir(path)),
-        menuItem('rename', editIcon(13), '重命名', () => beginRename(path)),
-        menuItem('copy', copyIcon(13), '复制', () => setClip('copy', path)),
-        menuItem('cut', cutIcon(13), '剪切', () => setClip('cut', path)),
+        menuItem('refresh', refreshIcon(13), t('refresh'), () => refreshDir(path)),
+        menuItem('rename', editIcon(13), t('rename'), () => beginRename(path)),
+        menuItem('copy', copyIcon(13), t('copy'), () => setClip('copy', path)),
+        menuItem('cut', cutIcon(13), t('cut'), () => setClip('cut', path)),
         menuItem('paste', pasteIcon(13), pasteLabel, () => pasteInto(path), clipboard === null),
         ...pasteImageItem(path),
         separator('s2'),
-        menuItem('delete', trashIcon(13), '删除', () => removePath(path)),
-        menuItem('copy-path', copyIcon(13), '复制路径', () => copyPath(path)),
+        menuItem('delete', trashIcon(13), t('delete'), () => removePath(path)),
+        menuItem('copy-path', copyIcon(13), t('copyPath'), () => copyPath(path)),
       ]
     }
     return [
-      menuItem('open', openIcon(13), '打开', () => openFile(path)),
+      menuItem('open', openIcon(13), t('open'), () => openFile(path)),
       separator('s1'),
-      menuItem('rename', editIcon(13), '重命名', () => beginRename(path)),
-      menuItem('copy', copyIcon(13), '复制', () => setClip('copy', path)),
-      menuItem('cut', cutIcon(13), '剪切', () => setClip('cut', path)),
+      menuItem('rename', editIcon(13), t('rename'), () => beginRename(path)),
+      menuItem('copy', copyIcon(13), t('copy'), () => setClip('copy', path)),
+      menuItem('cut', cutIcon(13), t('cut'), () => setClip('cut', path)),
       separator('s2'),
-      menuItem('delete', trashIcon(13), '删除', () => removePath(path)),
-      menuItem('copy-path', copyIcon(13), '复制路径', () => copyPath(path)),
+      menuItem('delete', trashIcon(13), t('delete'), () => removePath(path)),
+      menuItem('copy-path', copyIcon(13), t('copyPath'), () => copyPath(path)),
     ]
   }
 
@@ -942,7 +950,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
                 key: 'cancel',
                 className: 'df-dialog-btn',
                 onClick: () => setDialog(null),
-              }, '取消'),
+              }, t('cancel')),
               createElement('button', {
                 key: 'confirm',
                 className: `df-dialog-btn df-dialog-btn-primary${dialog.danger === true ? ' df-dialog-btn-danger' : ''}`,
@@ -952,7 +960,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
                   setDialog(null)
                   action?.()
                 },
-              }, dialog.confirmLabel ?? '确定'),
+              }, dialog.confirmLabel !== undefined ? t(dialog.confirmLabel) : t('ok')),
             ]
             : [
               createElement('button', {
@@ -960,7 +968,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
                 className: 'df-dialog-btn df-dialog-btn-primary',
                 autoFocus: true,
                 onClick: () => setDialog(null),
-              }, '确定'),
+              }, t('ok')),
             ],
         ),
       ),
@@ -993,13 +1001,13 @@ export function ExplorerView(props: ViewProps): ReactNode {
       ),
       createElement('button', {
         className: 'df-icon-btn',
-        title: '刷新',
+        title: t('refresh'),
         disabled: loading,
         onClick: () => { setMenu(null); void load() },
       }, refreshIcon(14, loading ? 'df-spin' : undefined)),
       createElement('button', {
         className: 'df-icon-btn',
-        title: '折叠全部',
+        title: t('collapseAll'),
         onClick: collapseAll,
       },
         createElement('span', { className: 'df-icon-stack' },
@@ -1071,7 +1079,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
             setDragOver(null)
             if (root !== null) handleDrop(event, root)
           },
-        }, '空目录')]
+        }, t('emptyDir'))]
         : rows),
     ),
     // 1px upload progress bar pinned to the panel's bottom edge.

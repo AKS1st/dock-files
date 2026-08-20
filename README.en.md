@@ -14,6 +14,7 @@ File-explorer plugin of the dock family: mounts a side-bar files panel that brow
 - **Paste local files**: after copying files in the OS, click the panel to focus it and press Ctrl+V to import them (the browser only exposes local file content through the paste event); the paste target is the last clicked/right-clicked directory, else the root.
 - **Upload progress & serialization**: every transfer (drag-in, Ctrl+V paste, paste image) shows a 1px progress bar pinned to the panel's bottom edge; only one upload runs at a time — further upload attempts while one is in flight prompt "请等上一个上传任务完成" (please wait for the previous upload to finish).
 - **Context menu**: per-kind items for files, directories and the empty area; the menu pulls back inside the viewport when it would overflow; confirmations and notices use a theme-matching in-app dialog.
+- **Localization**: all UI copy (context menu, dialogs, notices, states) follows the DSH language setting (zh/en, switching live on the `locale/change` event); default names for new files/folders follow too (`New File.txt` / `新建文件.txt`).
 - **File-domain service**: provides `ctx.files` (`open` / `registerFileViewer` / `registerFileIcon`); other plugins can register their own viewers (`exts` extension match or `default` fallback) and per-extension icons (`registerFileIcon`, one plugin may register several groups) with an `icon` (tint color + optional custom SVG glyph) that the explorer renders per extension, falling back to the built-in palette for unregistered types.
 
 ## Install

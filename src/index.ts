@@ -244,14 +244,20 @@ async function uniqueName(dir: string, base: string): Promise<string> {
 }
 
 /** Create a new file or directory with a unique default name (never overwrites). */
-async function createEntry(cwd: string, parent: string, kind: 'file' | 'dir'): Promise<{ path: string; name: string }> {
+async function createEntry(
+  cwd: string,
+  parent: string,
+  kind: 'file' | 'dir',
+  locale?: string,
+): Promise<{ path: string; name: string }> {
   const dir = await resolveWorkspacePath(cwd, parent)
+  const zh = locale !== 'en'
   if (kind === 'file') {
-    const name = await uniqueName(dir, '新建文件.txt')
+    const name = await uniqueName(dir, zh ? '新建文件.txt' : 'New File.txt')
     await writeFile(join(dir, name), '', { flag: 'wx' })
     return { path: join(dir, name), name }
   }
-  const name = await uniqueName(dir, '新建文件夹')
+  const name = await uniqueName(dir, zh ? '新建文件夹' : 'New Folder')
   await mkdir(join(dir, name))
   return { path: join(dir, name), name }
 }
@@ -544,7 +550,7 @@ export function apply(ctx: WbContext): void {
           if (kind !== 'file' && kind !== 'dir') {
             throw new WbError('bad-request', 'kind must be "file" or "dir"', 400)
           }
-          writeOk(res, await createEntry(cwd, parent, kind))
+          writeOk(res, await createEntry(cwd, parent, kind, stringOrUndefined(payload, 'locale')))
           return
         }
         if (method === 'rename') {
