@@ -19,6 +19,20 @@ const FOLDER_ICON: IconSpec = {
   path: 'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z',
 }
 
+/**
+ * A file-type icon registered by a viewer and shown in the explorer for the
+ * matching extensions. `color` tints the glyph; `path` replaces the generic
+ * document silhouette with a custom SVG glyph (fill style, evenodd holes).
+ */
+export interface FileTypeIcon {
+  /** Tint color (any CSS color). When absent the built-in per-type palette applies. */
+  color?: string
+  /** Custom glyph: an SVG path `d` in a 16×16 viewBox (fill + evenodd holes). */
+  path?: string
+  /** Override the glyph viewBox (default '0 0 16 16'). */
+  viewBox?: string
+}
+
 /** One registered file viewer (dock-editor registers itself here). */
 interface FileViewerDef {
   id: string
@@ -26,6 +40,12 @@ interface FileViewerDef {
   exts?: string[]
   /** Catch-all fallback when no extension matches. */
   default?: boolean
+  /**
+   * Explorer icon for this viewer's file types: extension-matched icons win
+   * over the built-in palette; the default viewer's icon is the fallback for
+   * types with no registered icon and no palette entry.
+   */
+  icon?: FileTypeIcon
 }
 
 /** The file-domain service dock-files provides as `ctx.files`. */
@@ -34,6 +54,22 @@ export interface FilesService {
   open(path: string, options?: { title?: string; mode?: 'tab' | 'floating' }): void
   /** Register a file viewer (returns the disposer). */
   registerFileViewer(def: FileViewerDef): () => void
+  /**
+   * Resolve the registered explorer icon for a file name: the first viewer
+   * whose extensions match and carries an icon, else undefined. The explorer
+   * falls back to the built-in palette, then to `fallbackIcon()`, then to the
+   * generic tint.
+   */
+  iconFor(name: string): FileTypeIcon | undefined
+  /**
+   * The default viewer's registered icon — the explorer's fallback for file
+   * types with no registered icon and no built-in palette entry.
+   */
+  fallbackIcon(): FileTypeIcon | undefined
+  /** Subscribe to viewer/icon registry changes (returns the disposer). */
+  subscribe(listener: () => void): () => void
+  /** Monotonic registry version — the useSyncExternalStore snapshot. */
+  getIconVersion(): number
 }
 
 function baseNameOf(path: string): string {
@@ -50,6 +86,12 @@ function extOfPath(path: string): string {
 /** Build the file-domain service bound to the workbench carrier. */
 function createFilesService(workbench: WorkbenchService): FilesService {
   const viewers = new Map<string, FileViewerDef>()
+  let version = 0
+  const listeners = new Set<() => void>()
+  const bump = (): void => {
+    version += 1
+    for (const listener of listeners) listener()
+  }
   const open = (path: string, options?: { title?: string; mode?: 'tab' | 'floating' }): void => {
     const ext = extOfPath(path)
     // Extension match first (registration order), then the default viewer.
@@ -64,9 +106,27 @@ function createFilesService(workbench: WorkbenchService): FilesService {
   }
   const registerFileViewer = (def: FileViewerDef): (() => void) => {
     viewers.set(def.id, def)
-    return () => { if (viewers.get(def.id) === def) viewers.delete(def.id) }
+    bump()
+    return () => {
+      if (viewers.get(def.id) !== def) return
+      viewers.delete(def.id)
+      bump()
+    }
   }
-  return { open, registerFileViewer }
+  const iconFor = (name: string): FileTypeIcon | undefined => {
+    const ext = extOfPath(name)
+    // Extension match only (registration order); the default viewer's icon is
+    // exposed separately so the explorer can keep palette precedence.
+    return [...viewers.values()].find((v) => v.exts?.includes(ext) && v.icon !== undefined)?.icon
+  }
+  const fallbackIcon = (): FileTypeIcon | undefined =>
+    [...viewers.values()].find((v) => v.default === true && v.icon !== undefined)?.icon
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener)
+    return () => { listeners.delete(listener) }
+  }
+  const getIconVersion = (): number => version
+  return { open, registerFileViewer, iconFor, fallbackIcon, subscribe, getIconVersion }
 }
 
 /** Client plugin body. */
