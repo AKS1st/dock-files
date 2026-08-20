@@ -71,6 +71,18 @@ interface ClipboardState {
   path: string
 }
 
+/** A themed in-app dialog (replaces native confirm/alert). */
+interface DialogState {
+  kind: 'confirm' | 'alert'
+  message: string
+  /** Confirm primary-button label (defaults to 确定). */
+  confirmLabel?: string
+  /** Style the confirm button as destructive (delete). */
+  danger?: boolean
+  /** Runs after the confirm button is pressed (dialog already closed). */
+  onConfirm?: () => void
+}
+
 /** Stable no-op subscription/snapshot for useSyncExternalStore without the files service. */
 const NOOP_SUBSCRIBE = (): (() => void) => () => {}
 const NOOP_SNAPSHOT = (): number => 0
@@ -135,6 +147,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
    *  "paste image" item; any other state hides it (no image / unsupported /
    *  read denied). */
   const [imageProbe, setImageProbe] = useState<'unknown' | 'has' | 'none'>('unknown')
+  const [dialog, setDialog] = useState<DialogState | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async (path?: string) => {
@@ -227,10 +240,29 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setExpanded(new Set())
   }
 
-  /** Report a mutation error without tearing down the view. */
+  /** Show a themed alert (replaces the native browser alert). */
+  const alertDialog = (message: string): void => {
+    setDialog({ kind: 'alert', message })
+  }
+
+  /** Show a themed confirm; `onConfirm` runs when the primary button is pressed. */
+  const confirmDialog = (
+    message: string,
+    onConfirm: () => void,
+    options?: { confirmLabel?: string; danger?: boolean },
+  ): void => {
+    setDialog({
+      kind: 'confirm',
+      message,
+      onConfirm,
+      confirmLabel: options?.confirmLabel ?? '确定',
+      danger: options?.danger,
+    })
+  }
+
+  /** Report a mutation error through the themed alert. */
   const reportError = (cause: unknown): void => {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    window.alert(message)
+    alertDialog(cause instanceof Error ? cause.message : String(cause))
   }
 
   /** Refetch the directory that contains `path` (the root reloads fully). */
@@ -352,7 +384,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     void (async () => {
       try {
         if (typeof navigator.clipboard === 'undefined' || typeof navigator.clipboard.read !== 'function') {
-          window.alert('当前浏览器不支持读取剪贴板图片')
+          alertDialog('当前浏览器不支持读取剪贴板图片')
           return
         }
         const items = await navigator.clipboard.read()
@@ -360,7 +392,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
           .map((item) => item.types.find((type) => type.startsWith('image/')))
           .find((type) => type !== undefined)
         if (imageType === undefined) {
-          window.alert('剪贴板中没有图片')
+          alertDialog('剪贴板中没有图片')
           return
         }
         const item = items.find((entry) => entry.types.includes(imageType))
@@ -380,25 +412,26 @@ export function ExplorerView(props: ViewProps): ReactNode {
     })()
   }
 
-  /** Delete one entry after confirmation (recursive for directories). */
+  /** Delete one entry after a themed confirmation (recursive for directories). */
   const removePath = (path: string): void => {
     setMenu(null)
-    if (!window.confirm(`确定删除 "${baseNameOf(path)}"？此操作不可恢复。`)) return
-    void (async () => {
-      try {
-        await callFiles('remove', { sessionId, paths: [path] })
-        setSelected((previous) => (previous === path ? null : previous))
-        setChildren((previous) => {
-          const next = new Map(previous)
-          next.delete(path)
-          return next
-        })
-        setClipboard((previous) => (previous?.path === path ? null : previous))
-        refreshParentOf(path)
-      } catch (cause) {
-        reportError(cause)
-      }
-    })()
+    confirmDialog(`确定删除 "${baseNameOf(path)}"？此操作不可恢复。`, () => {
+      void (async () => {
+        try {
+          await callFiles('remove', { sessionId, paths: [path] })
+          setSelected((previous) => (previous === path ? null : previous))
+          setChildren((previous) => {
+            const next = new Map(previous)
+            next.delete(path)
+            return next
+          })
+          setClipboard((previous) => (previous?.path === path ? null : previous))
+          refreshParentOf(path)
+        } catch (cause) {
+          reportError(cause)
+        }
+      })()
+    }, { confirmLabel: '删除', danger: true })
   }
 
   const toggle = (entry: FsEntry): void => {
@@ -432,6 +465,16 @@ export function ExplorerView(props: ViewProps): ReactNode {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [menu])
+
+  // Escape dismisses the dialog (backdrop click acts as cancel too).
+  useEffect(() => {
+    if (dialog === null) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setDialog(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [dialog])
 
   // Keep the (taller) context menu inside the viewport once it has laid out.
   useLayoutEffect(() => {
@@ -671,6 +714,52 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }, ...buildMenuItems()),
   )
 
+  // Themed dialog (replaces native confirm/alert): backdrop click cancels,
+  // the confirm button is auto-focused, Esc closes.
+  const dialogEl = dialog === null ? null : createElement(Fragment, null,
+    createElement('div', {
+      className: 'df-dialog-backdrop',
+      onMouseDown: () => setDialog(null),
+      onContextMenu: (event: MouseEvent) => event.preventDefault(),
+    }),
+    createElement('div', {
+      className: 'df-dialog',
+      role: 'dialog',
+      'aria-modal': true,
+      onMouseDown: (event: MouseEvent) => event.stopPropagation(),
+    },
+      createElement('div', { className: 'df-dialog-body' }, dialog.message),
+      createElement('div', { className: 'df-dialog-actions' },
+        dialog.kind === 'confirm'
+          ? [
+            createElement('button', {
+              key: 'cancel',
+              className: 'df-dialog-btn',
+              onClick: () => setDialog(null),
+            }, '取消'),
+            createElement('button', {
+              key: 'confirm',
+              className: `df-dialog-btn df-dialog-btn-primary${dialog.danger === true ? ' df-dialog-btn-danger' : ''}`,
+              autoFocus: true,
+              onClick: () => {
+                const action = dialog.onConfirm
+                setDialog(null)
+                action?.()
+              },
+            }, dialog.confirmLabel ?? '确定'),
+          ]
+          : [
+            createElement('button', {
+              key: 'ok',
+              className: 'df-dialog-btn df-dialog-btn-primary',
+              autoFocus: true,
+              onClick: () => setDialog(null),
+            }, '确定'),
+          ],
+      ),
+    ),
+  )
+
   const rows = renderLevel(entries, 0, [])
 
   return createElement('div', { className: 'df-view' },
@@ -727,5 +816,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
     // would otherwise turn the menu's fixed coordinates into panel-relative
     // ones and render it off-screen.
     menuEl !== null ? createPortal(menuEl, document.body) : null,
+    dialogEl !== null ? createPortal(dialogEl, document.body) : null,
   )
 }

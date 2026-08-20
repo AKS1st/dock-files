@@ -281,6 +281,65 @@ const CSS = `
 /* ── Cut items stay dimmed until pasted ── */
 .df-cut .df-type,
 .df-cut .df-name { opacity: 0.45; }
+
+/* ── Dialog (themed replacement for the native confirm/alert) ── */
+.df-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+.df-dialog {
+  z-index: 1002;
+  min-width: 260px;
+  max-width: 420px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary, #1f2328);
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  border: 1px solid var(--dsw-alias-border-l2, #d8dbe0);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  animation: df-dialog-in 0.12s ease-out;
+}
+@keyframes df-dialog-in {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.df-dialog-body {
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.df-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.df-dialog-btn {
+  padding: 5px 14px;
+  border: 1px solid var(--dsw-alias-border-l2, #d8dbe0);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font-size: 12px;
+  cursor: pointer;
+}
+.df-dialog-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+}
+.df-dialog-btn-primary {
+  border-color: transparent;
+  background: #0969da;
+  color: #ffffff;
+}
+.df-dialog-btn-primary:hover { background: #0a6ee0; }
+.df-dialog-btn-danger { background: #d1242f; }
+.df-dialog-btn-danger:hover { background: #b01e27; }
 `
 
 export function mountStyles(): () => void {
