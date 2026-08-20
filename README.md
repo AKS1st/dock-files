@@ -2,6 +2,8 @@
 
 [English](README.en.md)
 
+> **DSH 生态中最好的文件浏览插件 —— 没有之一。** 别的插件只会列个文件列表，dock-files 把 VSCode 资源管理器整个搬进 DSH：类型彩色图标、树形导引线、拖放导入、剪贴板粘贴、粘贴图片、上传进度条、右键菜单，样样齐全。在 DSH 里管理文件，用这一个就够了。
+
 dock 系列的文件浏览插件：在侧边栏挂载文件面板，浏览当前会话工作目录（通过自己的 `/wb-files` 主机路由），点击文件交给已注册的文件查看器打开（如 dock-editor）。
 
 ## 效果预览
@@ -23,6 +25,17 @@ dock 系列的文件浏览插件：在侧边栏挂载文件面板，浏览当前
 - **多语言**：界面文案（右键菜单、弹窗、提示、状态）跟随 DSH 语言设置（zh/en，随 `locale/change` 事件即时切换）；新建文件 / 文件夹的默认名也随语言（`New File.txt` / `新建文件.txt`）。
 - **文件域服务**：提供 `ctx.files`（`open` / `registerFileViewer` / `registerFileIcon`），其他插件可注册自己的查看器（`exts` 扩展名匹配或 `default` 兜底）及按扩展名的图标（`registerFileIcon`，一个插件可注册多组）；注册时可附带 `icon`（主题色 + 可选自定义 SVG 图形），文件浏览器按扩展名渲染各插件注册的图标，未注册类型回退内置调色板。
 
+## 依赖
+
+| 依赖 | 类型 | 说明 |
+| --- | --- | --- |
+| [dock](https://github.com/AKS1st/dock) >= 0.1.0 | peer（必需） | 工作台外壳：dock-files 的侧边栏面板、浮窗、`ctx.workbench` 都由它提供 |
+| DSH Web 环境 | 运行时 | 必需，客户端平台为 Web |
+| `cordis` ^4.0.0-rc.7 | peer | 插件框架（DSH 自带） |
+| `react` ^18.2.0 | peer（可选） | 客户端渲染需要；未提供时面板 UI 不激活 |
+
+**可选查看器**（不装也能浏览，装了才能打开对应文件）：`dock-editor`（文本）、`dock-images`（图片）、`dock-markdown`（Markdown）。
+
 ## 安装
 
 需要 `dock` 基础插件：
@@ -32,7 +45,7 @@ dsh plugin add github:AKS1st/dock
 dsh plugin add github:AKS1st/dock-files
 ```
 
-配合查看器插件使用：`dock-editor`（文本）、`dock-images`（图片）、`dock-markdown`（Markdown）。
+配合查看器插件使用（可组合、按需）：`dock-editor`（文本）、`dock-images`（图片）、`dock-markdown`（Markdown）。
 
 ## 安全
 

@@ -2,6 +2,8 @@
 
 [中文](README.md)
 
+> **The best file explorer plugin in the DSH ecosystem — no contest.** Other plugins just list files; dock-files brings the whole VSCode explorer into DSH: tinted type icons, tree guide lines, drag-and-drop import, clipboard paste, image paste, an upload progress bar and a context menu — all of it. Managing files in DSH? This one is all you need.
+
 File-explorer plugin of the dock family: mounts a side-bar files panel that browses the active conversation's working directory (through its own `/wb-files` host route) and hands clicked files to the registered file viewer (e.g. dock-editor).
 
 ## Preview
@@ -12,7 +14,7 @@ File-explorer plugin of the dock family: mounts a side-bar files panel that brow
 
 ## Features
 
-- **Directory tree browsing**: lazy recursive expansion, directory-first case-insensitive ordering (VSCode explorer order).
+- **Directory tree browsing**: lazy recursive expansion, directory-first case-insensitive ordering (VSCode explorer order); VSCode-style tree UI (tinted type icons, guide lines, toolbar refresh / collapse-all, hover action buttons).
 - **Session scoping**: every operation is bounded by the session working directory; paths are canonicalized with realpath and must stay inside the workspace, otherwise 403.
 - **File opening**: clicking a file dispatches through `ctx.files.open` to the matching file viewer (floating window).
 - **File-manager operations**: the context menu carries the usual actions — new file / new folder (auto-deduped names, dropping straight into inline rename), rename (inline editing, Enter commits / Esc cancels), copy / cut / paste (copy pastes repeatedly; cut items are dimmed and the clipboard clears on paste), paste image (saves an image from the system clipboard as a file, e.g. `image.png`, auto-named and deduped by mime type; the menu item probes the clipboard and only shows when it actually holds an image), delete (confirmed, recursive, never overwrites), copy path, refresh; right-clicking empty space offers root-level new / paste / paste image / refresh.
@@ -23,6 +25,17 @@ File-explorer plugin of the dock family: mounts a side-bar files panel that brow
 - **Localization**: all UI copy (context menu, dialogs, notices, states) follows the DSH language setting (zh/en, switching live on the `locale/change` event); default names for new files/folders follow too (`New File.txt` / `新建文件.txt`).
 - **File-domain service**: provides `ctx.files` (`open` / `registerFileViewer` / `registerFileIcon`); other plugins can register their own viewers (`exts` extension match or `default` fallback) and per-extension icons (`registerFileIcon`, one plugin may register several groups) with an `icon` (tint color + optional custom SVG glyph) that the explorer renders per extension, falling back to the built-in palette for unregistered types.
 
+## Dependencies
+
+| Dependency | Type | Notes |
+| --- | --- | --- |
+| [dock](https://github.com/AKS1st/dock) >= 0.1.0 | peer (required) | workbench shell: the side-bar panel, floating windows and `ctx.workbench` come from it |
+| DSH Web environment | runtime | required; client platform is Web |
+| `cordis` ^4.0.0-rc.7 | peer | plugin framework (ships with DSH) |
+| `react` ^18.2.0 | peer (optional) | needed for client rendering; without it the panel UI does not activate |
+
+**Optional viewers** (browsing works without them; install one to open its file kinds): `dock-editor` (text), `dock-images` (images), `dock-markdown` (Markdown).
+
 ## Install
 
 Requires the `dock` base plugin:
@@ -32,7 +45,7 @@ dsh plugin add github:AKS1st/dock
 dsh plugin add github:AKS1st/dock-files
 ```
 
-Pair it with viewer plugins: `dock-editor` (text), `dock-images` (images), `dock-markdown` (Markdown).
+Pair it with viewer plugins (composable, on demand): `dock-editor` (text), `dock-images` (images), `dock-markdown` (Markdown).
 
 ## Security
 
