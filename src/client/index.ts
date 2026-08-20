@@ -56,11 +56,19 @@ export interface FilesService {
   registerFileViewer(def: FileViewerDef): () => void
   /**
    * Resolve the registered explorer icon for a file name: the first viewer
-   * whose extensions match and carries an icon, else undefined. The explorer
-   * falls back to the built-in palette, then to `fallbackIcon()`, then to the
-   * generic tint.
+   * whose extensions match and carries an icon, else the first
+   * `registerFileIcon` registration whose extensions match, else undefined.
+   * The explorer falls back to the built-in palette, then to
+   * `fallbackIcon()`, then to the generic tint.
    */
   iconFor(name: string): FileTypeIcon | undefined
+  /**
+   * Register an explorer icon for a set of extensions without creating a
+   * viewer (returns the disposer). Unlike a viewer's single icon, this lets
+   * one plugin own many per-type icons (e.g. dock-editor registering one
+   * code glyph per source family with its own color).
+   */
+  registerFileIcon(def: { exts: string[]; icon: FileTypeIcon }): () => void
   /**
    * The default viewer's registered icon — the explorer's fallback for file
    * types with no registered icon and no built-in palette entry.
@@ -86,6 +94,7 @@ function extOfPath(path: string): string {
 /** Build the file-domain service bound to the workbench carrier. */
 function createFilesService(workbench: WorkbenchService): FilesService {
   const viewers = new Map<string, FileViewerDef>()
+  const fileIcons: { exts: string[]; icon: FileTypeIcon }[] = []
   let version = 0
   const listeners = new Set<() => void>()
   const bump = (): void => {
@@ -113,11 +122,24 @@ function createFilesService(workbench: WorkbenchService): FilesService {
       bump()
     }
   }
+  const registerFileIcon = (def: { exts: string[]; icon: FileTypeIcon }): (() => void) => {
+    fileIcons.push(def)
+    bump()
+    return () => {
+      const at = fileIcons.indexOf(def)
+      if (at !== -1) {
+        fileIcons.splice(at, 1)
+        bump()
+      }
+    }
+  }
   const iconFor = (name: string): FileTypeIcon | undefined => {
     const ext = extOfPath(name)
-    // Extension match only (registration order); the default viewer's icon is
-    // exposed separately so the explorer can keep palette precedence.
+    // Extension match only (registration order): viewer icons first, then
+    // file-icon registrations; the default viewer's icon is exposed
+    // separately so the explorer can keep palette precedence.
     return [...viewers.values()].find((v) => v.exts?.includes(ext) && v.icon !== undefined)?.icon
+      ?? fileIcons.find((def) => def.exts.includes(ext))?.icon
   }
   const fallbackIcon = (): FileTypeIcon | undefined =>
     [...viewers.values()].find((v) => v.default === true && v.icon !== undefined)?.icon
@@ -126,7 +148,7 @@ function createFilesService(workbench: WorkbenchService): FilesService {
     return () => { listeners.delete(listener) }
   }
   const getIconVersion = (): number => version
-  return { open, registerFileViewer, iconFor, fallbackIcon, subscribe, getIconVersion }
+  return { open, registerFileViewer, registerFileIcon, iconFor, fallbackIcon, subscribe, getIconVersion }
 }
 
 /** Client plugin body. */

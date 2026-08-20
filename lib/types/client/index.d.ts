@@ -39,11 +39,22 @@ export interface FilesService {
     registerFileViewer(def: FileViewerDef): () => void;
     /**
      * Resolve the registered explorer icon for a file name: the first viewer
-     * whose extensions match and carries an icon, else undefined. The explorer
-     * falls back to the built-in palette, then to `fallbackIcon()`, then to the
-     * generic tint.
+     * whose extensions match and carries an icon, else the first
+     * `registerFileIcon` registration whose extensions match, else undefined.
+     * The explorer falls back to the built-in palette, then to
+     * `fallbackIcon()`, then to the generic tint.
      */
     iconFor(name: string): FileTypeIcon | undefined;
+    /**
+     * Register an explorer icon for a set of extensions without creating a
+     * viewer (returns the disposer). Unlike a viewer's single icon, this lets
+     * one plugin own many per-type icons (e.g. dock-editor registering one
+     * code glyph per source family with its own color).
+     */
+    registerFileIcon(def: {
+        exts: string[];
+        icon: FileTypeIcon;
+    }): () => void;
     /**
      * The default viewer's registered icon — the explorer's fallback for file
      * types with no registered icon and no built-in palette entry.
