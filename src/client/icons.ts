@@ -234,6 +234,20 @@ const FOLDER_PLUS: Glyph = {
   ],
 }
 
+/** Picture frame (self-drawn ic_ds silhouette style) — paste image: a
+ *  rounded frame with a sun circle and a mountain. */
+const IMAGE: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [
+    {
+      d: 'M2.9 3.4h10.2a1.1 1.1 0 0 1 1.1 1.1v7a1.1 1.1 0 0 1-1.1 1.1H2.9a1.1 1.1 0 0 1-1.1-1.1v-7a1.1 1.1 0 0 1 1.1-1.1Z',
+    },
+    { d: 'M5.4 5a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z' },
+    { d: 'M3.5 11.4L7 7.9l2.2 2.2 1.9-1.9 2.6 2.6-0.5 0.6H3.5Z' },
+  ],
+}
+
 // ── File-type glyph (harness silhouette style) ─────────────────────────────
 
 /**
@@ -364,6 +378,11 @@ export function pasteIcon(size = 14): ReactNode {
 
 export function newFolderIcon(size = 14): ReactNode {
   return svgIcon(FOLDER_PLUS, { size })
+}
+
+/** Picture frame — paste a clipboard image. */
+export function imageIcon(size = 14): ReactNode {
+  return svgIcon(IMAGE, { size })
 }
 
 /** Open loading ring; consumers spin it with the .df-spin class. */

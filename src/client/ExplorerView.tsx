@@ -9,9 +9,10 @@
  * collapse-all), per-type tinted file glyphs, tree guide lines, hover
  * action buttons, a modern context menu and styled states. The context menu
  * carries the usual file-manager actions — new file / new folder (with
- * inline rename), rename, copy / cut / paste, delete (confirmed), copy path,
- * refresh — plus an empty-area menu for the root directory. All glyphs are
- * the vendored harness ic_ds_* icon set (see ./icons.ts).
+ * inline rename), rename, copy / cut / paste, paste image from the system
+ * clipboard, delete (confirmed), copy path, refresh — plus an empty-area
+ * menu for the root directory. All glyphs are the vendored harness ic_ds_*
+ * icon set (see ./icons.ts).
  */
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -24,6 +25,7 @@ import {
   editIcon,
   fileIcon,
   folderIcon,
+  imageIcon,
   loadingIcon,
   newFolderIcon,
   openIcon,
@@ -101,6 +103,16 @@ function parentPathOf(path: string): string | null {
   const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
   if (at === -1) return null
   return at === 0 ? (path.startsWith('\\') ? '\\' : '/') : path.slice(0, at)
+}
+
+/** Read a Blob as a base64 data URL (used for clipboard images). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('failed to read image'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 export function ExplorerView(props: ViewProps): ReactNode {
@@ -221,6 +233,12 @@ export function ExplorerView(props: ViewProps): ReactNode {
     else refreshDir(parent)
   }
 
+  /** Refetch a directory's own contents (the root reloads fully). */
+  const refreshDirContents = (dir: string): void => {
+    if (dir === root) void load()
+    else refreshDir(dir)
+  }
+
   const beginRename = (path: string): void => {
     setMenu(null)
     setSelected(path)
@@ -294,7 +312,41 @@ export function ExplorerView(props: ViewProps): ReactNode {
           refreshParentOf(source)
           setClipboard(null)
         }
-        refreshParentOf(dest)
+        refreshDirContents(dest)
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
+  /** Paste an image from the system clipboard into `dest` (saved as a file). */
+  const pasteImageInto = (dest: string): void => {
+    setMenu(null)
+    void (async () => {
+      try {
+        if (typeof navigator.clipboard === 'undefined' || typeof navigator.clipboard.read !== 'function') {
+          window.alert('当前浏览器不支持读取剪贴板图片')
+          return
+        }
+        const items = await navigator.clipboard.read()
+        const imageType = items
+          .map((item) => item.types.find((type) => type.startsWith('image/')))
+          .find((type) => type !== undefined)
+        if (imageType === undefined) {
+          window.alert('剪贴板中没有图片')
+          return
+        }
+        const item = items.find((entry) => entry.types.includes(imageType))
+        if (item === undefined) return
+        const blob = await item.getType(imageType)
+        const dataUrl = await blobToDataUrl(blob)
+        await callFiles('saveImage', {
+          sessionId,
+          parent: dest,
+          data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+          mime: imageType,
+        })
+        refreshDirContents(dest)
       } catch (cause) {
         reportError(cause)
       }
@@ -536,6 +588,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('new-dir', newFolderIcon(13), '新建文件夹', () => startCreate('dir', root)),
         separator('s1'),
         menuItem('paste', pasteIcon(13), label, () => pasteInto(root), clipboard === null),
+        menuItem('paste-image', imageIcon(13), '粘贴图片', () => pasteImageInto(root)),
         separator('s2'),
         menuItem('refresh', refreshIcon(13), '刷新', () => void load()),
       ]
@@ -552,6 +605,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('copy', copyIcon(13), '复制', () => setClip('copy', path)),
         menuItem('cut', cutIcon(13), '剪切', () => setClip('cut', path)),
         menuItem('paste', pasteIcon(13), pasteLabel, () => pasteInto(path), clipboard === null),
+        menuItem('paste-image', imageIcon(13), '粘贴图片', () => pasteImageInto(path)),
         separator('s2'),
         menuItem('delete', trashIcon(13), '删除', () => removePath(path)),
         menuItem('copy-path', copyIcon(13), '复制路径', () => copyPath(path)),

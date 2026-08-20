@@ -37,7 +37,14 @@ export class WbError extends Error {
   }
 }
 
-const MAX_BODY_BYTES = 1 << 20
+/**
+ * Request body cap: large enough for base64-encoded clipboard images
+ * (decoded limit is MAX_IMAGE_BYTES; base64 inflates by ~4/3).
+ */
+const MAX_BODY_BYTES = 1 << 26
+
+/** Decoded size cap for a pasted clipboard image. */
+const MAX_IMAGE_BYTES = 32 * 1024 * 1024
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
@@ -327,6 +334,75 @@ async function removeEntries(cwd: string, paths: string[]): Promise<{ removed: s
   return { removed }
 }
 
+// ── Clipboard image paste ──────────────────────────────────────────────────
+
+/** Accepted image mime → default file extension for pasted clipboard images. */
+const IMAGE_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/bmp': '.bmp',
+  'image/svg+xml': '.svg',
+  'image/avif': '.avif',
+  'image/x-icon': '.ico',
+}
+
+/** Magic-byte check so a fake mime can't smuggle arbitrary bytes as an image
+ *  (svg is XML and skips the check; unknown image/* mimes are trusted). */
+function imageMagicOk(mime: string, bytes: Buffer): boolean {
+  if (mime === 'image/svg+xml') return bytes.length > 0
+  if (mime === 'image/png') {
+    return bytes.length >= 8
+      && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  }
+  if (mime === 'image/jpeg' || mime === 'image/jpg') {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+  }
+  if (mime === 'image/gif') {
+    const head = bytes.subarray(0, 6).toString('latin1')
+    return head === 'GIF87a' || head === 'GIF89a'
+  }
+  if (mime === 'image/webp') {
+    return bytes.length >= 12
+      && bytes.subarray(0, 4).toString('latin1') === 'RIFF'
+      && bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  }
+  if (mime === 'image/bmp') {
+    return bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d
+  }
+  return true
+}
+
+/** Save a clipboard image (base64) under `parent` with a unique name. */
+async function saveImageEntry(
+  cwd: string,
+  parent: string,
+  mime: string,
+  data: string,
+  suggested?: string,
+): Promise<{ path: string; name: string }> {
+  if (!mime.startsWith('image/')) {
+    throw new WbError('bad-request', 'not an image mime type', 400)
+  }
+  const dir = await resolveWorkspacePath(cwd, parent)
+  const bytes = Buffer.from(data, 'base64')
+  if (bytes.length === 0) throw new WbError('bad-request', 'image data is empty', 400)
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    throw new WbError('bad-request', 'image is too large', 400)
+  }
+  if (!imageMagicOk(mime, bytes)) {
+    throw new WbError('bad-request', 'image data does not match its mime type', 400)
+  }
+  const ext = IMAGE_EXT[mime] ?? '.png'
+  const stem = suggested !== undefined && suggested.trim() !== '' ? suggested.trim() : '图片'
+  const base = stem.endsWith(ext) ? stem : `${stem}${ext}`
+  const name = await uniqueName(dir, base)
+  await writeFile(join(dir, name), bytes, { flag: 'wx' })
+  return { path: join(dir, name), name }
+}
+
 // ── Trust fence (stripped from dsh-better-sidebar/src/trust-fence.ts) ─────
 
 function header(headers: IncomingHttpHeaders, name: string): string | undefined {
@@ -467,6 +543,13 @@ export function apply(ctx: WbContext): void {
         if (method === 'remove') {
           const paths = stringArrayOf(payload, 'paths')
           writeOk(res, await removeEntries(cwd, paths))
+          return
+        }
+        if (method === 'saveImage') {
+          const parent = stringOf(payload, 'parent')
+          const mime = stringOf(payload, 'mime')
+          const data = stringOf(payload, 'data')
+          writeOk(res, await saveImageEntry(cwd, parent, mime, data, stringOrUndefined(payload, 'name')))
           return
         }
         writeError(res, new WbError('not-found', `unknown /wb-files method "${method}"`, 404))

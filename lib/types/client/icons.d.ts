@@ -26,6 +26,8 @@ export declare function openIcon(size?: number): ReactNode;
 export declare function cutIcon(size?: number): ReactNode;
 export declare function pasteIcon(size?: number): ReactNode;
 export declare function newFolderIcon(size?: number): ReactNode;
+/** Picture frame — paste a clipboard image. */
+export declare function imageIcon(size?: number): ReactNode;
 /** Open loading ring; consumers spin it with the .df-spin class. */
 export declare function loadingIcon(size?: number, className?: string): ReactNode;
 export declare function warningIcon(size?: number): ReactNode;
