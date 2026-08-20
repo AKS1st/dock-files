@@ -396,7 +396,7 @@ async function saveImageEntry(
     throw new WbError('bad-request', 'image data does not match its mime type', 400)
   }
   const ext = IMAGE_EXT[mime] ?? '.png'
-  const stem = suggested !== undefined && suggested.trim() !== '' ? suggested.trim() : '图片'
+  const stem = suggested !== undefined && suggested.trim() !== '' ? suggested.trim() : 'image'
   const base = stem.endsWith(ext) ? stem : `${stem}${ext}`
   const name = await uniqueName(dir, base)
   await writeFile(join(dir, name), bytes, { flag: 'wx' })
