@@ -13,11 +13,13 @@
  * clipboard, delete (confirmed), copy path, refresh — plus an empty-area
  * menu for the root directory. Drag & drop: entries can be dragged onto
  * directories (or the empty area) to move them, and OS files can be dropped
- * in to import copies. Local files copied in the OS can also be pasted with
- * Ctrl+V while the panel is focused (the browser only exposes them through
- * the paste event). Transfers are serialized (one at a time, others are
- * prompted to wait) and show a 1px progress bar at the panel's bottom.
- * All glyphs are the vendored harness ic_ds_* icon set (see ./icons.ts).
+ * in to import copies; dropping onto a file row moves/imports into that
+ * file's parent directory so imprecise drops still land. Local files copied
+ * in the OS can also be pasted with Ctrl+V while the panel is focused (the
+ * browser only exposes them through the paste event). Transfers are
+ * serialized (one at a time, others are prompted to wait) and show a 1px
+ * progress bar at the panel's bottom. All glyphs are the vendored harness
+ * ic_ds_* icon set (see ./icons.ts).
  */
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -731,29 +733,31 @@ export function ExplorerView(props: ViewProps): ReactNode {
           setDragSource(null)
           setDragOver(null)
         },
-        // Directories are drop targets: dropping moves the dragged entry
-        // (internal) or imports OS files into them. File rows are not.
-        ...(entry.isDir
-          ? {
-            onDragEnter: (event: DragEvent) => {
-              event.preventDefault()
-              setDragOver(entry.path)
-            },
-            onDragOver: (event: DragEvent) => {
-              event.preventDefault()
-              if (event.dataTransfer !== null) {
-                event.dataTransfer.dropEffect = event.dataTransfer.files.length > 0 ? 'copy' : 'move'
-              }
-            },
-            onDragLeave: () => setDragOver((previous) => (previous === entry.path ? null : previous)),
-            onDrop: (event: DragEvent) => {
-              event.preventDefault()
-              event.stopPropagation()
-              setDragOver(null)
-              handleDrop(event, entry.path)
-            },
+        // Every row is a drop target: onto a directory the entry moves /
+        // imports into it; onto a file it moves / imports into that file's
+        // parent directory — so an imprecise drop on a sibling still lands
+        // somewhere useful. Dropping an entry onto itself is ignored.
+        onDragEnter: (event: DragEvent) => {
+          if (dragSource === entry.path) return
+          event.preventDefault()
+          setDragOver(entry.path)
+        },
+        onDragOver: (event: DragEvent) => {
+          if (dragSource === entry.path) return
+          event.preventDefault()
+          if (event.dataTransfer !== null) {
+            event.dataTransfer.dropEffect = event.dataTransfer.files.length > 0 ? 'copy' : 'move'
           }
-          : {}),
+        },
+        onDragLeave: () => setDragOver((previous) => (previous === entry.path ? null : previous)),
+        onDrop: (event: DragEvent) => {
+          event.preventDefault()
+          event.stopPropagation()
+          setDragOver(null)
+          if (dragSource === entry.path) return
+          const dest = entry.isDir ? entry.path : parentPathOf(entry.path)
+          if (dest !== null) handleDrop(event, dest)
+        },
       },
         ...(depth > 0 ? guideSlots(depth, ancestors, isLast) : []),
         createElement('span', {
