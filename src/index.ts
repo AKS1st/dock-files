@@ -9,8 +9,8 @@
  * the session's authoritative cwd comes from the session store (falling
  * back to the process cwd while a session is hydrating).
  */
-import { opendir } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { opendir, realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 
 export const name = 'dock-files'
@@ -150,6 +150,32 @@ function requireAbsolute(path: string): string {
   return resolve(path)
 }
 
+/**
+ * Confine a caller-supplied absolute path to the session workspace: the
+ * canonical (symlink-resolved) path must equal the canonical session cwd or
+ * live under it (separator boundary). Any escape — `..`, a symlink pointing
+ * out of the workspace, or an unrelated absolute path — is rejected 403.
+ * Returns the canonical target path, so callers operate on the real path.
+ */
+async function resolveWorkspacePath(cwd: string, raw: string): Promise<string> {
+  const root = await realpath(cwd).catch(() => resolve(cwd))
+  requireAbsolute(raw)
+  let target: string
+  try {
+    target = await realpath(raw)
+  } catch {
+    // A not-yet-existing target (e.g. a future write): canonicalize the
+    // parent directory and re-append the basename, then check containment.
+    const parent = await realpath(dirname(raw)).catch(() => dirname(raw))
+    target = join(parent, basename(raw))
+  }
+  const rel = relative(root, target)
+  if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) {
+    return target
+  }
+  throw new WbError('forbidden', `path is outside the session workspace: "${raw}"`, 403)
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -262,7 +288,7 @@ export function apply(ctx: WbContext): void {
           const sessionId = stringOrUndefined(payload, 'sessionId')
           const raw = stringOrUndefined(payload, 'path')
           const cwd = sessionCwdOf(ctx, sessionId)
-          const target = raw === undefined ? cwd : requireAbsolute(raw)
+          const target = raw === undefined ? cwd : await resolveWorkspacePath(cwd, raw)
           const listing = await listDirectory(target)
           writeOk(res, { listing, cwd })
           return
