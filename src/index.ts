@@ -403,6 +403,28 @@ async function saveImageEntry(
   return { path: join(dir, name), name }
 }
 
+/** Decoded size cap for a file dragged into the explorer from the OS. */
+const MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+/** Save a dragged-in file (base64) under `parent` with a unique name. */
+async function uploadEntry(
+  cwd: string,
+  parent: string,
+  name: string,
+  data: string,
+): Promise<{ path: string; name: string }> {
+  validateBasename(name)
+  const dir = await resolveWorkspacePath(cwd, parent)
+  const bytes = Buffer.from(data, 'base64')
+  if (bytes.length === 0) throw new WbError('bad-request', 'file is empty', 400)
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    throw new WbError('bad-request', 'file is too large', 400)
+  }
+  const fileName = await uniqueName(dir, name)
+  await writeFile(join(dir, fileName), bytes, { flag: 'wx' })
+  return { path: join(dir, fileName), name: fileName }
+}
+
 // ── Trust fence (stripped from dsh-better-sidebar/src/trust-fence.ts) ─────
 
 function header(headers: IncomingHttpHeaders, name: string): string | undefined {
@@ -550,6 +572,13 @@ export function apply(ctx: WbContext): void {
           const mime = stringOf(payload, 'mime')
           const data = stringOf(payload, 'data')
           writeOk(res, await saveImageEntry(cwd, parent, mime, data, stringOrUndefined(payload, 'name')))
+          return
+        }
+        if (method === 'upload') {
+          const parent = stringOf(payload, 'parent')
+          const name = stringOf(payload, 'name')
+          const data = stringOf(payload, 'data')
+          writeOk(res, await uploadEntry(cwd, parent, name, data))
           return
         }
         writeError(res, new WbError('not-found', `unknown /wb-files method "${method}"`, 404))

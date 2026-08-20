@@ -11,8 +11,10 @@
  * carries the usual file-manager actions — new file / new folder (with
  * inline rename), rename, copy / cut / paste, paste image from the system
  * clipboard, delete (confirmed), copy path, refresh — plus an empty-area
- * menu for the root directory. All glyphs are the vendored harness ic_ds_*
- * icon set (see ./icons.ts).
+ * menu for the root directory. Drag & drop: entries can be dragged onto
+ * directories (or the empty area) to move them, and OS files can be dropped
+ * in to import copies. All glyphs are the vendored harness ic_ds_* icon set
+ * (see ./icons.ts).
  */
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -148,6 +150,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
    *  read denied). */
   const [imageProbe, setImageProbe] = useState<'unknown' | 'has' | 'none'>('unknown')
   const [dialog, setDialog] = useState<DialogState | null>(null)
+  /** Internal drag: the path being dragged (dimmed), and the highlighted drop target. */
+  const [dragSource, setDragSource] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async (path?: string) => {
@@ -179,6 +184,8 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setExpanded(new Set())
     setClipboard(null)
     setRenaming(null)
+    setDragSource(null)
+    setDragOver(null)
     if (active) void load()
   }, [active, load, sessionId])
 
@@ -412,6 +419,60 @@ export function ExplorerView(props: ViewProps): ReactNode {
     })()
   }
 
+  /** Save OS files dropped into the explorer into `dest` (unique names). */
+  const uploadFiles = (files: FileList, dest: string): void => {
+    setMenu(null)
+    // Dropped folders surface as zero-byte, empty-type File entries — skip them.
+    const list = Array.from(files).filter((file) => !(file.size === 0 && file.type === ''))
+    if (list.length === 0) return
+    void (async () => {
+      try {
+        for (const file of list) {
+          const dataUrl = await blobToDataUrl(file)
+          await callFiles('upload', {
+            sessionId,
+            parent: dest,
+            name: file.name !== '' ? file.name : '文件',
+            data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+          })
+        }
+        refreshDirContents(dest)
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
+  /** Move an entry dragged inside the tree into `dest` (never overwrites). */
+  const moveDropped = (source: string, dest: string): void => {
+    if (source === dest) return
+    void (async () => {
+      try {
+        await callFiles('move', { sessionId, sources: [source], dest })
+        refreshParentOf(source)
+        refreshDirContents(dest)
+      } catch (cause) {
+        reportError(cause)
+      }
+    })()
+  }
+
+  /** Route a drop: external OS files are imported, internal drags are moved. */
+  const handleDrop = (event: DragEvent, dest: string): void => {
+    const dt = event.dataTransfer
+    if (dt === null) return
+    if (dt.files !== undefined && dt.files.length > 0) {
+      uploadFiles(dt.files, dest)
+      return
+    }
+    let source = dt.getData('application/x-dock-files')
+    if (source === '') {
+      const text = dt.getData('text/plain')
+      source = text.startsWith('dock-files:') ? text.slice('dock-files:'.length) : ''
+    }
+    if (source !== '') moveDropped(source, dest)
+  }
+
   /** Delete one entry after a themed confirmation (recursive for directories). */
   const removePath = (path: string): void => {
     setMenu(null)
@@ -537,11 +598,14 @@ export function ExplorerView(props: ViewProps): ReactNode {
         selected === entry.path ? 'df-row-selected' : '',
         entry.hidden ? 'df-hidden' : '',
         isCut ? 'df-cut' : '',
+        dragSource === entry.path ? 'df-dragging' : '',
+        dragOver === entry.path ? 'df-drop-target' : '',
       ].filter(Boolean).join(' ')
       rows.push(createElement('div', {
         key: entry.path,
         className: rowClass,
         title: entry.path,
+        draggable: !isRenaming,
         onClick: isRenaming ? undefined : () => toggle(entry),
         onContextMenu: (event: MouseEvent) => {
           event.preventDefault()
@@ -554,6 +618,41 @@ export function ExplorerView(props: ViewProps): ReactNode {
           })
           if (entry.isDir) probeClipboardImage()
         },
+        onDragStart: (event: DragEvent) => {
+          const dt = event.dataTransfer
+          if (dt === null) return
+          dt.setData('application/x-dock-files', entry.path)
+          dt.setData('text/plain', `dock-files:${entry.path}`)
+          dt.effectAllowed = 'move'
+          setDragSource(entry.path)
+        },
+        onDragEnd: () => {
+          setDragSource(null)
+          setDragOver(null)
+        },
+        // Directories are drop targets: dropping moves the dragged entry
+        // (internal) or imports OS files into them. File rows are not.
+        ...(entry.isDir
+          ? {
+            onDragEnter: (event: DragEvent) => {
+              event.preventDefault()
+              setDragOver(entry.path)
+            },
+            onDragOver: (event: DragEvent) => {
+              event.preventDefault()
+              if (event.dataTransfer !== null) {
+                event.dataTransfer.dropEffect = event.dataTransfer.files.length > 0 ? 'copy' : 'move'
+              }
+            },
+            onDragLeave: () => setDragOver((previous) => (previous === entry.path ? null : previous)),
+            onDrop: (event: DragEvent) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setDragOver(null)
+              handleDrop(event, entry.path)
+            },
+          }
+          : {}),
       },
         ...(depth > 0 ? guideSlots(depth, ancestors, isLast) : []),
         createElement('span', {
@@ -790,13 +889,36 @@ export function ExplorerView(props: ViewProps): ReactNode {
       ),
     ),
     createElement('div', {
-      className: 'df-tree',
+      className: `df-tree${dragOver === root && root !== null ? ' df-drop-target' : ''}`,
       // Right-click on the empty area: root-level actions (new / paste).
       onContextMenu: (event: MouseEvent) => {
         if (event.target !== event.currentTarget) return
         event.preventDefault()
         setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
         probeClipboardImage()
+      },
+      // The empty area is also a drop target for the root directory.
+      onDragEnter: (event: DragEvent) => {
+        if (event.target !== event.currentTarget || root === null) return
+        event.preventDefault()
+        setDragOver(root)
+      },
+      onDragOver: (event: DragEvent) => {
+        if (event.target !== event.currentTarget) return
+        event.preventDefault()
+        if (event.dataTransfer !== null) {
+          event.dataTransfer.dropEffect = event.dataTransfer.files.length > 0 ? 'copy' : 'move'
+        }
+      },
+      onDragLeave: (event: DragEvent) => {
+        if (event.target !== event.currentTarget) return
+        setDragOver((previous) => (previous === root ? null : previous))
+      },
+      onDrop: (event: DragEvent) => {
+        if (event.target !== event.currentTarget || root === null) return
+        event.preventDefault()
+        setDragOver(null)
+        handleDrop(event, root)
       },
     },
       ...(entries.length === 0
@@ -808,6 +930,24 @@ export function ExplorerView(props: ViewProps): ReactNode {
             event.stopPropagation()
             setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
             probeClipboardImage()
+          },
+          onDragEnter: (event: DragEvent) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (root !== null) setDragOver(root)
+          },
+          onDragOver: (event: DragEvent) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (event.dataTransfer !== null) {
+              event.dataTransfer.dropEffect = event.dataTransfer.files.length > 0 ? 'copy' : 'move'
+            }
+          },
+          onDrop: (event: DragEvent) => {
+            event.preventDefault()
+            event.stopPropagation()
+            setDragOver(null)
+            if (root !== null) handleDrop(event, root)
           },
         }, '空目录')]
         : rows),

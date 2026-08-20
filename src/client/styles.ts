@@ -282,6 +282,17 @@ const CSS = `
 .df-cut .df-type,
 .df-cut .df-name { opacity: 0.45; }
 
+/* ── Drag & drop (internal move / OS file import) ── */
+.df-row.df-dragging { opacity: 0.45; }
+.df-row.df-drop-target,
+.df-row.df-drop-target:hover {
+  background: var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.15));
+}
+.df-tree.df-drop-target {
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.55));
+  border-radius: 6px;
+}
+
 /* ── Dialog (themed replacement for the native confirm/alert) ── */
 .df-dialog-backdrop {
   position: fixed;

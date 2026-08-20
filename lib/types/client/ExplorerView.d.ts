@@ -11,8 +11,10 @@
  * carries the usual file-manager actions — new file / new folder (with
  * inline rename), rename, copy / cut / paste, paste image from the system
  * clipboard, delete (confirmed), copy path, refresh — plus an empty-area
- * menu for the root directory. All glyphs are the vendored harness ic_ds_*
- * icon set (see ./icons.ts).
+ * menu for the root directory. Drag & drop: entries can be dragged onto
+ * directories (or the empty area) to move them, and OS files can be dropped
+ * in to import copies. All glyphs are the vendored harness ic_ds_* icon set
+ * (see ./icons.ts).
  */
 import { type ReactNode } from 'react';
 import type { ViewProps } from './contract.ts';
