@@ -918,50 +918,54 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }, ...buildMenuItems()),
   )
 
-  // Themed dialog (replaces native confirm/alert): backdrop click cancels,
-  // the confirm button is auto-focused, Esc closes.
-  const dialogEl = dialog === null ? null : createElement(Fragment, null,
+  // Themed dialog (replaces native confirm/alert): the card is a child of
+  // the backdrop so flex centering applies and the fixed backdrop never
+  // paints above it; backdrop click cancels, the confirm button is
+  // auto-focused, Esc closes.
+  const dialogEl = dialog === null ? null : createPortal(
     createElement('div', {
       className: 'df-dialog-backdrop',
       onMouseDown: () => setDialog(null),
       onContextMenu: (event: MouseEvent) => event.preventDefault(),
-    }),
-    createElement('div', {
-      className: 'df-dialog',
-      role: 'dialog',
-      'aria-modal': true,
-      onMouseDown: (event: MouseEvent) => event.stopPropagation(),
     },
-      createElement('div', { className: 'df-dialog-body' }, dialog.message),
-      createElement('div', { className: 'df-dialog-actions' },
-        dialog.kind === 'confirm'
-          ? [
-            createElement('button', {
-              key: 'cancel',
-              className: 'df-dialog-btn',
-              onClick: () => setDialog(null),
-            }, '取消'),
-            createElement('button', {
-              key: 'confirm',
-              className: `df-dialog-btn df-dialog-btn-primary${dialog.danger === true ? ' df-dialog-btn-danger' : ''}`,
-              autoFocus: true,
-              onClick: () => {
-                const action = dialog.onConfirm
-                setDialog(null)
-                action?.()
-              },
-            }, dialog.confirmLabel ?? '确定'),
-          ]
-          : [
-            createElement('button', {
-              key: 'ok',
-              className: 'df-dialog-btn df-dialog-btn-primary',
-              autoFocus: true,
-              onClick: () => setDialog(null),
-            }, '确定'),
-          ],
+      createElement('div', {
+        className: 'df-dialog',
+        role: 'dialog',
+        'aria-modal': true,
+        onMouseDown: (event: MouseEvent) => event.stopPropagation(),
+      },
+        createElement('div', { className: 'df-dialog-body' }, dialog.message),
+        createElement('div', { className: 'df-dialog-actions' },
+          dialog.kind === 'confirm'
+            ? [
+              createElement('button', {
+                key: 'cancel',
+                className: 'df-dialog-btn',
+                onClick: () => setDialog(null),
+              }, '取消'),
+              createElement('button', {
+                key: 'confirm',
+                className: `df-dialog-btn df-dialog-btn-primary${dialog.danger === true ? ' df-dialog-btn-danger' : ''}`,
+                autoFocus: true,
+                onClick: () => {
+                  const action = dialog.onConfirm
+                  setDialog(null)
+                  action?.()
+                },
+              }, dialog.confirmLabel ?? '确定'),
+            ]
+            : [
+              createElement('button', {
+                key: 'ok',
+                className: 'df-dialog-btn df-dialog-btn-primary',
+                autoFocus: true,
+                onClick: () => setDialog(null),
+              }, '确定'),
+            ],
+        ),
       ),
     ),
+    document.body,
   )
 
   const rows = renderLevel(entries, 0, [])

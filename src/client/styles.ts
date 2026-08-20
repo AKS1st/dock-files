@@ -319,8 +319,9 @@ const CSS = `
   justify-content: center;
   background: rgba(0, 0, 0, 0.35);
 }
+/* The card is a flex child of the backdrop: centered by it and painted
+   above its background inside the backdrop's stacking context. */
 .df-dialog {
-  z-index: 1002;
   min-width: 260px;
   max-width: 420px;
   padding: 14px 16px;
