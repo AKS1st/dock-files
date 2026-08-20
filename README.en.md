@@ -4,6 +4,12 @@
 
 File-explorer plugin of the dock family: mounts a side-bar files panel that browses the active conversation's working directory (through its own `/wb-files` host route) and hands clicked files to the registered file viewer (e.g. dock-editor).
 
+## Preview
+
+| Main UI | Context menu |
+| --- | --- |
+| ![dock-files file explorer main UI](assets/main-gui.png) | ![dock-files context menu](assets/menu-en.png) |
+
 ## Features
 
 - **Directory tree browsing**: lazy recursive expansion, directory-first case-insensitive ordering (VSCode explorer order).
