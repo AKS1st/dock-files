@@ -131,6 +131,10 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const [loading, setLoading] = useState(false)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null)
   const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null)
+  /** Clipboard-image probe result for the current menu: 'has' shows the
+   *  "paste image" item; any other state hides it (no image / unsupported /
+   *  read denied). */
+  const [imageProbe, setImageProbe] = useState<'unknown' | 'has' | 'none'>('unknown')
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async (path?: string) => {
@@ -318,6 +322,30 @@ export function ExplorerView(props: ViewProps): ReactNode {
     })()
   }
 
+  /**
+   * Probe the system clipboard for an image so the "paste image" menu item
+   * shows only when one is actually available. Called while opening a menu;
+   * the right-click is a user gesture, so the first read may raise the
+   * browser's clipboard permission prompt. Any failure (unsupported API,
+   * permission denied, no image) hides the item.
+   */
+  const probeClipboardImage = (): void => {
+    setImageProbe('unknown')
+    void (async () => {
+      let has = false
+      try {
+        if (typeof navigator.clipboard !== 'undefined' && typeof navigator.clipboard.read === 'function') {
+          const items = await navigator.clipboard.read()
+          has = items.some((item) => item.types.some((type) => type.startsWith('image/')))
+        }
+      } catch {
+        // Read denied or not permitted yet: keep the item hidden.
+        has = false
+      }
+      setImageProbe(has ? 'has' : 'none')
+    })()
+  }
+
   /** Paste an image from the system clipboard into `dest` (saved as a file). */
   const pasteImageInto = (dest: string): void => {
     setMenu(null)
@@ -481,6 +509,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
             y: event.clientY,
             target: { kind: entry.isDir ? 'dir' : 'file', path: entry.path },
           })
+          if (entry.isDir) probeClipboardImage()
         },
       },
         ...(depth > 0 ? guideSlots(depth, ancestors, isLast) : []),
@@ -579,6 +608,11 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const buildMenuItems = (): ReactNode[] => {
     if (menu === null) return []
     const target = menu.target
+    // The "paste image" item only shows when the clipboard probe found an image.
+    const pasteImageItem = (dest: string): ReactNode[] =>
+      imageProbe === 'has'
+        ? [menuItem('paste-image', imageIcon(13), '粘贴图片', () => pasteImageInto(dest))]
+        : []
     if (target.kind === 'empty') {
       if (root === null) return []
       const label = clipboard === null ? '粘贴' : `粘贴 ${baseNameOf(clipboard.path)}`
@@ -587,7 +621,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('new-dir', newFolderIcon(13), '新建文件夹', () => startCreate('dir', root)),
         separator('s1'),
         menuItem('paste', pasteIcon(13), label, () => pasteInto(root), clipboard === null),
-        menuItem('paste-image', imageIcon(13), '粘贴图片', () => pasteImageInto(root)),
+        ...pasteImageItem(root),
         separator('s2'),
         menuItem('refresh', refreshIcon(13), '刷新', () => void load()),
       ]
@@ -604,7 +638,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('copy', copyIcon(13), '复制', () => setClip('copy', path)),
         menuItem('cut', cutIcon(13), '剪切', () => setClip('cut', path)),
         menuItem('paste', pasteIcon(13), pasteLabel, () => pasteInto(path), clipboard === null),
-        menuItem('paste-image', imageIcon(13), '粘贴图片', () => pasteImageInto(path)),
+        ...pasteImageItem(path),
         separator('s2'),
         menuItem('delete', trashIcon(13), '删除', () => removePath(path)),
         menuItem('copy-path', copyIcon(13), '复制路径', () => copyPath(path)),
@@ -673,6 +707,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         if (event.target !== event.currentTarget) return
         event.preventDefault()
         setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
+        probeClipboardImage()
       },
     },
       ...(entries.length === 0
@@ -683,6 +718,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
             event.preventDefault()
             event.stopPropagation()
             setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
+            probeClipboardImage()
           },
         }, '空目录')]
         : rows),
