@@ -35,6 +35,12 @@ export interface FilesService {
         title?: string;
         mode?: 'tab' | 'floating';
     }): void;
+    /**
+     * Whether a registered viewer can open `path` (extension match first, then
+     * the catch-all default). The chat open-path bridge consults this before
+     * routing a conversation path into the workbench.
+     */
+    canOpen(path: string): boolean;
     /** Register a file viewer (returns the disposer). */
     registerFileViewer(def: FileViewerDef): () => void;
     /**

@@ -1,10 +1,11 @@
 /**
  * Host half of dock-files: the /wb-files JSON API — single-level directory
- * listing plus the file-manager mutations (new file/folder, rename, copy,
- * move, delete), browser-trust fenced like the /api gateway. Stripped and
- * simplified from dsh-better-sidebar (MIT): fs-tree / wire / trust-fence
- * helpers are copied here because the plugin must not depend on another
- * plugin's internals.
+ * listing, a stat probe (existence + directory flag, used by the client's
+ * chat open-path bridge), plus the file-manager mutations (new file/folder,
+ * rename, copy, move, delete), browser-trust fenced like the /api gateway.
+ * Stripped and simplified from dsh-better-sidebar (MIT): fs-tree / wire /
+ * trust-fence helpers are copied here because the plugin must not depend on
+ * another plugin's internals.
  *
  * All operations are conversation-scoped: requests carry a sessionId and
  * the session's authoritative cwd comes from the session store (falling
@@ -542,6 +543,20 @@ export function apply(ctx: WbContext): void {
           const target = raw === undefined ? cwd : await resolveWorkspacePath(cwd, raw)
           const listing = await listDirectory(target)
           writeOk(res, { listing, cwd })
+          return
+        }
+        if (method === 'probe') {
+          // Routing probe for the client chat open-path bridge: stat an
+          // absolute path and report existence + directory flag without
+          // listing anything. No workspace confinement — the decision is a
+          // routing heuristic (workbench viewer vs native opener), and the
+          // existence of a path the page already displays is not sensitive.
+          const raw = stringOf(payload, 'path')
+          requireAbsolute(raw)
+          const info = await stat(raw).catch(() => undefined)
+          writeOk(res, info === undefined
+            ? { exists: false, isDir: false }
+            : { exists: true, isDir: info.isDirectory() })
           return
         }
         if (method === 'create') {
