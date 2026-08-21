@@ -1,6 +1,6 @@
 {
   "name": "dock-files",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "File explorer for the DSH dock: browse the active conversation's working directory and open files in the registered file viewers.",
   "type": "module",
   "repository": {
