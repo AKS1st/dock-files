@@ -46,6 +46,13 @@ dsh plugin add github:AKS1st/dock
 dsh plugin add github:AKS1st/dock-files
 ```
 
+从 npm registry 安装同样支持：
+
+```sh
+dsh plugin add dock-base
+dsh plugin add dock-files
+```
+
 配合查看器插件使用（可组合、按需）：`dock-editor`（文本）、`dock-images`（图片）、`dock-markdown`（Markdown）。
 
 ## 安全

@@ -46,6 +46,13 @@ dsh plugin add github:AKS1st/dock
 dsh plugin add github:AKS1st/dock-files
 ```
 
+The same plugins are also available from the npm registry:
+
+```sh
+dsh plugin add dock-base
+dsh plugin add dock-files
+```
+
 Pair it with viewer plugins (composable, on demand): `dock-editor` (text), `dock-images` (images), `dock-markdown` (Markdown).
 
 ## Security
