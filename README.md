@@ -44,15 +44,15 @@ dock 系列的文件浏览插件：在侧边栏挂载文件面板，浏览当前
 推荐从 npm registry 安装：
 
 ```sh
-dsh plugin add dock-base
-dsh plugin add dock-files
+dsh plugin --profile web add dock-base
+dsh plugin --profile web add dock-files
 ```
 
 或通过 GitHub 安装（备选）：
 
 ```sh
-dsh plugin add github:AKS1st/dock
-dsh plugin add github:AKS1st/dock-files
+dsh plugin --profile web add github:AKS1st/dock
+dsh plugin --profile web add github:AKS1st/dock-files
 ```
 
 配合查看器插件使用（可组合、按需）：`dock-editor`（文本）、`dock-images`（图片）、`dock-markdown`（Markdown）。
