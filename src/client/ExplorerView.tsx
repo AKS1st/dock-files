@@ -1140,6 +1140,14 @@ export function ExplorerView(props: ViewProps): ReactNode {
       if (document.activeElement !== viewRef.current) viewRef.current?.focus()
     },
   },
+    createElement('div', {
+      className: 'df-pathbar',
+      title: root ?? undefined,
+      onClick: () => { setMenu(null); void load() },
+    },
+      folderIcon(true, 13),
+      createElement('span', null, root ?? '…'),
+    ),
     createElement('input', {
       ref: uploadInputRef,
       type: 'file',

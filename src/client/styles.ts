@@ -21,6 +21,26 @@ const CSS = `
   overflow: hidden;
 }
 
+/* ── Fixed workspace path row (the shell title-row actions sit above it) ── */
+.df-pathbar {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: none;
+}
+.df-pathbar svg { flex: none; color: var(--dsw-alias-label-secondary, #656d76); }
+.df-pathbar > span { overflow: hidden; text-overflow: ellipsis; }
+.df-pathbar:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.10)); }
+
 /* ── Fixed Files title-row actions and progress ── */
 .df-shell-actions {
   display: flex;
