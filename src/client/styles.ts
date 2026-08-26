@@ -231,11 +231,6 @@ const CSS = `
   height: 20px;
   flex: none;
   margin-top: 4px;
-  border-radius: 5px;
-}
-.df-root-spacer:hover,
-.df-root-spacer:focus-visible {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08));
 }
 
 /* ── Context menu (portaled to <body>, above the dock shell) ── */

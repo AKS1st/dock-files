@@ -1232,8 +1232,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
         : rows),
       createElement('div', {
         className: 'df-root-spacer',
-        role: 'presentation',
-        'aria-label': t('emptyDir'),
         onContextMenu: (event: MouseEvent) => openRootContextMenu(event),
         onDragEnter: (event: DragEvent) => {
           event.preventDefault()
