@@ -309,6 +309,30 @@ const CSS = `
   transition: width 0.12s linear;
 }
 
+/* ── Transfer center ── */
+.df-transfer-view { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--dsw-alias-label-primary, #1f2328); font-size: 12px; }
+.df-transfer-header { display: flex; align-items: center; gap: 10px; padding: 0 0 8px; border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0); flex: none; }
+.df-transfer-title { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.df-transfer-summary { flex: 1; color: var(--dsw-alias-label-secondary, #656d76); }
+.df-transfer-clear, .df-transfer-action { border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary, #656d76); cursor: pointer; font-size: 11px; padding: 4px 6px; }
+.df-transfer-clear:hover, .df-transfer-action:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12)); color: var(--dsw-alias-label-primary, #1f2328); }
+.df-transfer-list { min-height: 0; overflow: auto; padding-top: 4px; }
+.df-transfer-empty { padding: 16px 8px; color: var(--dsw-alias-label-secondary, #656d76); text-align: center; }
+.df-transfer-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.3fr) minmax(130px, 1fr) auto; gap: 8px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0); }
+.df-transfer-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08)); }
+.df-transfer-main, .df-transfer-paths, .df-transfer-progress { min-width: 0; }
+.df-transfer-name, .df-transfer-paths span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-transfer-name { font-weight: 600; }
+.df-transfer-kind, .df-transfer-progress > span { color: var(--dsw-alias-label-secondary, #656d76); font-size: 11px; }
+.df-transfer-paths { display: flex; gap: 4px; color: var(--dsw-alias-label-secondary, #656d76); }
+.df-transfer-path-arrow { flex: none; }
+.df-transfer-progress-track { height: 4px; overflow: hidden; border-radius: 3px; background: var(--dsw-alias-border-l2, #d8dbe0); }
+.df-transfer-progress-fill { height: 100%; border-radius: inherit; background: var(--dsw-alias-interactive-bg-hover-accent, #0969da); transition: width .15s ease; }
+.df-transfer-actions { display: flex; gap: 2px; }
+.df-transfer-error { grid-column: 1 / -1; overflow: hidden; color: #d1242f; text-overflow: ellipsis; white-space: nowrap; }
+.df-transfer-status { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--dsw-alias-label-secondary, #656d76); cursor: pointer; font-size: 11px; padding: 2px 6px; }
+.df-transfer-status:hover { color: var(--dsw-alias-label-primary, #1f2328); }
+
 /* ── Dialog (themed replacement for the native confirm/alert) ── */
 .df-dialog-backdrop {
   position: fixed;

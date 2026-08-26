@@ -23,8 +23,17 @@
  */
 import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { ViewProps } from './contract.ts'
+import type { ViewProps, WorkbenchService } from './contract.ts'
 import type { FilesService } from './index'
+import { openTransferView, transferIcon } from './TransferView'
+import {
+  createTransferTask,
+  getSnapshot as getTransferSnapshot,
+  subscribe as subscribeTransfers,
+  startTask,
+  updateTask,
+  type TransferController,
+} from './transferStore'
 import { translate } from './i18n'
 import { useLocale } from './hooks'
 import {
@@ -95,6 +104,7 @@ interface DialogState {
 /** Stable no-op subscription/snapshot for useSyncExternalStore without the files service. */
 const NOOP_SUBSCRIBE = (): (() => void) => () => {}
 const NOOP_SNAPSHOT = (): number => 0
+const TRANSFER_NOOP_SUBSCRIBE = (): (() => void) => () => {}
 
 /** Call one /wb-files host method; throws on non-ok responses. */
 async function callFiles(method: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -143,44 +153,13 @@ interface UploadItem {
   mime?: string
 }
 
-/**
- * XHR POST that reports request-body progress (fetch has no upload
- * progress events); resolves with the API value, rejects on non-ok bodies.
- */
-function xhrUpload(url: string, body: string, onProgress: (loaded: number) => void): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', url)
-    xhr.setRequestHeader('content-type', 'application/json')
-    xhr.upload.onprogress = (event: ProgressEvent) => {
-      if (event.lengthComputable && event.loaded > 0) onProgress(event.loaded)
-    }
-    xhr.onload = () => {
-      try {
-        const json = JSON.parse(xhr.responseText) as {
-          ok: boolean
-          value?: Record<string, unknown>
-          error?: { code: string; message: string }
-        }
-        if (json.ok !== true || json.value === undefined) {
-          throw new Error(json.error?.message ?? 'upload failed')
-        }
-        resolve(json.value)
-      } catch (cause) {
-        reject(cause)
-      }
-    }
-    xhr.onerror = () => reject(new Error('upload failed'))
-    xhr.send(body)
-  })
-}
-
 export function ExplorerView(props: ViewProps): ReactNode {
   const { ctx, sessionId, active } = props
   const files = ctx.get<FilesService>('files')
   // Re-render when a viewer (re)registers with an icon (plugin update / HMR);
   // icons resolve through the files service at render time.
   useSyncExternalStore(files?.subscribe ?? NOOP_SUBSCRIBE, files?.getIconVersion ?? NOOP_SNAPSHOT)
+  const transferSnapshot = useSyncExternalStore(subscribeTransfers ?? TRANSFER_NOOP_SUBSCRIBE, getTransferSnapshot)
   // Locale-aware copy (re-renders on DSH locale switch).
   const locale = useLocale(ctx)
   const t = useCallback(
@@ -205,11 +184,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
   /** Internal drag: the path being dragged (dimmed), and the highlighted drop target. */
   const [dragSource, setDragSource] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
-  /** Upload pipeline: one transfer at a time; progress 0..1 drives the 1px bar. */
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  /** Ref mirror of `uploading` so stale closures (paste/drag listeners) see the live guard. */
-  const uploadingRef = useRef(false)
   /** Ctrl+V paste target: the last clicked/right-clicked directory (null = root). */
   const [pasteDir, setPasteDir] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -473,53 +447,83 @@ export function ExplorerView(props: ViewProps): ReactNode {
     })()
   }
 
-  /**
-   * Serialized upload pipeline: one transfer at a time, driving the 1px
-   * progress bar at the panel's bottom. An additional upload while one is
-   * running is rejected with a themed notice.
-   */
+  /** Keep image clipboard compatibility, while regular files use global chunk tasks. */
   const runUpload = (items: UploadItem[], dest: string): void => {
     setMenu(null)
-    if (uploadingRef.current) {
-      alertDialog(t('uploadBusy'))
-      return
-    }
     if (items.length === 0) return
-    uploadingRef.current = true
-    setUploading(true)
-    setUploadProgress(0)
-    void (async () => {
-      try {
-        // Read every file first so the progress total is known up front.
-        const prepared = await Promise.all(items.map(async (item) => {
-          const dataUrl = await blobToDataUrl(item.blob)
-          const body = JSON.stringify({
-            sessionId,
-            parent: dest,
-            name: item.name,
-            ...(item.mime !== undefined ? { mime: item.mime } : {}),
-            data: dataUrl.slice(dataUrl.indexOf(',') + 1),
-          })
-          return { body, method: item.mime !== undefined ? 'saveImage' : 'upload' }
-        }))
-        const totalBytes = prepared.reduce((sum, item) => sum + item.body.length, 0)
-        let doneBytes = 0
-        for (const item of prepared) {
-          await xhrUpload(`/wb-files/${item.method}`, item.body, (loaded) => {
-            setUploadProgress(totalBytes === 0 ? 1 : (doneBytes + loaded) / totalBytes)
-          })
-          doneBytes += item.body.length
-        }
-        setUploadProgress(1)
-        refreshDirContents(dest)
-      } catch (cause) {
-        reportError(cause)
-      } finally {
-        uploadingRef.current = false
-        setUploading(false)
-        setUploadProgress(0)
+    const images = items.filter((item) => item.mime !== undefined)
+    const filesToUpload = items.filter((item) => item.mime === undefined)
+    for (const item of images) {
+      void blobToDataUrl(item.blob).then((dataUrl) => callFiles('saveImage', {
+        sessionId, parent: dest, name: item.name, mime: item.mime,
+        data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+      })).then(() => refreshDirContents(dest)).catch(reportError)
+    }
+    for (const item of filesToUpload) {
+      const abort = new AbortController()
+      let paused = false
+      let cancelRequested = false
+      let pauseResolver: (() => void) | undefined
+      let uploadId: string | undefined
+      const waitIfPaused = async (): Promise<void> => {
+        if (!paused || cancelRequested) return
+        await new Promise<void>((resolve) => { pauseResolver = resolve })
+        pauseResolver = undefined
       }
-    })()
+      const wakePaused = (): void => {
+        const resolve = pauseResolver
+        pauseResolver = undefined
+        resolve?.()
+      }
+      const controller: TransferController = {
+        start: async (task) => {
+          const started = await callFiles('uploadStart', {
+            sessionId, parent: dest, name: item.name, size: item.blob.size,
+          })
+          uploadId = String(started.uploadId ?? '')
+          if (uploadId === '') throw new Error('uploadStart returned no uploadId')
+          const currentUploadId = uploadId
+           if (cancelRequested) {
+             await callFiles('uploadCancel', { sessionId, uploadId: currentUploadId })
+              cancelRequested = true
+             return
+           }
+          const chunkSize = 1024 * 1024
+          for (let offset = task.transferredBytes; offset < item.blob.size; offset += chunkSize) {
+            await waitIfPaused()
+            if (cancelRequested) return
+            const chunk = item.blob.slice(offset, Math.min(offset + chunkSize, item.blob.size))
+            const response = await fetch(`/wb-files/uploadChunk?sessionId=${encodeURIComponent(sessionId ?? '')}&uploadId=${encodeURIComponent(currentUploadId)}&offset=${offset}`, {
+              method: 'POST', body: chunk, signal: abort.signal,
+            })
+            const result = await response.json() as { ok?: boolean; error?: { message?: string } }
+            if (!response.ok || result.ok !== true) throw new Error(result.error?.message ?? 'upload chunk failed')
+            updateTask(task.id, { transferredBytes: Math.min(offset + chunk.size, item.blob.size) })
+          }
+          if (cancelRequested) return
+           await callFiles('uploadComplete', { sessionId, uploadId: currentUploadId, size: item.blob.size })
+           if (!cancelRequested) {
+             updateTask(task.id, { status: 'completed' })
+             refreshDirContents(dest)
+           }
+        },
+        pause: () => { paused = true },
+        resume: () => { paused = false; wakePaused() },
+        cancel: async () => {
+          cancelRequested = true
+           paused = false
+           wakePaused()
+           abort.abort()
+           if (uploadId !== undefined) {
+             await callFiles('uploadCancel', { sessionId, uploadId })
+           }
+        },
+      }
+      const task = createTransferTask({ kind: 'upload', name: item.name, sourcePath: item.name, targetPath: dest, sessionId, totalBytes: item.blob.size, controller })
+      void startTask(task.id).catch((cause) => {
+        if (!cancelRequested) reportError(cause)
+      })
+    }
   }
 
   /** Import OS files (drag-in or Ctrl+V paste) into `dest` (unique names). */
@@ -528,6 +532,89 @@ export function ExplorerView(props: ViewProps): ReactNode {
     const list = Array.from(files).filter((file) => !(file.size === 0 && file.type === ''))
     if (list.length === 0) return
     runUpload(list.map((file) => ({ name: file.name !== '' ? file.name : t('fileFallbackName'), blob: file })), dest)
+  }
+
+  /** Download a regular file through the streaming file route. */
+  const downloadFile = (path: string): void => {
+    setMenu(null)
+    const abort = new AbortController()
+    let paused = false
+    let cancelRequested = false
+    let cancelled = false
+    let pauseResolver: (() => void) | undefined
+    const waitIfPaused = async (): Promise<void> => {
+      while (paused && !cancelled) {
+        await new Promise<void>((resolve) => { pauseResolver = resolve })
+        pauseResolver = undefined
+      }
+    }
+    const wakePaused = (): void => {
+      const resolve = pauseResolver
+      pauseResolver = undefined
+      resolve?.()
+    }
+    const controller: TransferController = {
+      start: async (task) => {
+        try {
+          const response = await fetch(`/wb-files/download?sessionId=${encodeURIComponent(sessionId ?? '')}&path=${encodeURIComponent(path)}`, { signal: abort.signal })
+          const contentType = response.headers.get('content-type') ?? ''
+          if (contentType.includes('application/json')) {
+            const json = await response.json() as { ok?: boolean; value?: { skipped?: boolean; reason?: string }; error?: { message?: string } }
+            if (json.value?.skipped === true) {
+              updateTask(task.id, { status: 'skipped', error: t('symlinkSkipped') })
+              return
+            }
+            throw new Error(json.error?.message ?? t('downloadFailed'))
+          }
+          if (!response.ok) throw new Error(t('downloadFailed'))
+          const length = Number(response.headers.get('content-length') ?? 0)
+          if (length > 0) updateTask(task.id, { totalBytes: length })
+          let blob: Blob
+          if (response.body !== null) {
+            const reader = response.body.getReader()
+            const chunks: Blob[] = []
+            let transferred = 0
+            for (;;) {
+              await waitIfPaused()
+              if (cancelRequested) return
+              const part = await reader.read()
+              if (part.done) break
+              chunks.push(new Blob([part.value]))
+              transferred += part.value.byteLength
+              updateTask(task.id, { transferredBytes: transferred, ...(length > 0 ? { totalBytes: length } : {}) })
+            }
+            blob = new Blob(chunks)
+            if (length === 0) updateTask(task.id, { totalBytes: transferred })
+          } else {
+            const buffer = await response.arrayBuffer()
+            if (cancelRequested) return
+            blob = new Blob([buffer])
+            updateTask(task.id, { totalBytes: buffer.byteLength, transferredBytes: buffer.byteLength })
+          }
+          if (cancelRequested) return
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = baseNameOf(path)
+          anchor.click()
+          URL.revokeObjectURL(url)
+          updateTask(task.id, { status: 'completed' })
+        } catch (cause) {
+          if (abort.signal.aborted || cancelled) return
+          throw cause
+        }
+      },
+      pause: () => { paused = true },
+      resume: () => { paused = false; wakePaused() },
+      cancel: async () => {
+        cancelRequested = true
+        paused = false
+        wakePaused()
+        abort.abort()
+      },
+    }
+    const task = createTransferTask({ kind: 'download', name: baseNameOf(path), sourcePath: path, targetPath: t('browserDownload'), sessionId, totalBytes: 0, controller })
+    void startTask(task.id).catch((cause) => reportError(cause))
   }
 
   /** Move an entry dragged inside the tree into `dest` (never overwrites). */
@@ -901,6 +988,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
     return [
       menuItem('open', openIcon(13), t('open'), () => openFile(path)),
+      menuItem('download', openIcon(13), t('download'), () => downloadFile(path)),
       separator('s1'),
       menuItem('rename', editIcon(13), t('rename'), () => beginRename(path)),
       menuItem('copy', copyIcon(13), t('copy'), () => setClip('copy', path)),
@@ -1015,6 +1103,11 @@ export function ExplorerView(props: ViewProps): ReactNode {
           chevronUpIcon(10),
         ),
       ),
+      createElement('button', {
+        className: 'df-icon-btn',
+        title: t('openTransferCenter'),
+        onClick: () => openTransferView(ctx.get<WorkbenchService>('workbench')),
+      }, transferIcon(14)),
     ),
     createElement('div', {
       className: `df-tree${dragOver === root && root !== null ? ' df-drop-target' : ''}`,
@@ -1082,12 +1175,12 @@ export function ExplorerView(props: ViewProps): ReactNode {
         }, t('emptyDir'))]
         : rows),
     ),
-    // 1px upload progress bar pinned to the panel's bottom edge.
-    ...(uploading
-      ? [createElement('div', { key: 'progress', className: 'df-progress' },
+    // Global transfer progress shared by every Explorer instance.
+    ...(transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
+      ? [createElement('div', { key: 'progress', className: 'df-progress', title: t('transferSummary', { active: transferSnapshot.activeCount, progress: Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100) }) },
         createElement('div', {
           className: 'df-progress-fill',
-          style: { width: `${Math.round(uploadProgress * 100)}%` },
+          style: { width: `${Math.min(100, Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100))}%` },
         }))]
       : []),
     // Portal to <body>: a transform on an ancestor (dock-mode floating panel)

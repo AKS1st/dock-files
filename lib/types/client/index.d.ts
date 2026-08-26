@@ -1,4 +1,5 @@
 import type { WorkbenchContext } from './contract.ts';
+export { openTransferView } from './TransferView';
 /** Requires the workbench base to be mounted. */
 export declare const inject: string[];
 /**
@@ -73,4 +74,3 @@ export interface FilesService {
 }
 /** Client plugin body. */
 export declare function apply(ctx: WorkbenchContext): void;
-export {};

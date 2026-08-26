@@ -9,6 +9,9 @@
 import type {} from './contract.ts'
 import type { IconSpec, WorkbenchContext, WorkbenchService } from './contract.ts'
 import { ExplorerView } from './ExplorerView'
+import { TransferStatusBar, TransferView } from './TransferView'
+
+export { openTransferView } from './TransferView'
 import { mountStyles } from './styles'
 
 /** Requires the workbench base to be mounted. */
@@ -286,4 +289,18 @@ export function apply(ctx: WorkbenchContext): void {
     order: 10,
     component: ExplorerView,
   }), 'dock-files: files panel')
+
+  // Transfer center: an independent floating editor view and status-bar entry.
+  ctx.effect(() => workbench.registerEditorView({
+    id: 'transfers',
+    title: 'Transfers',
+    icon: FOLDER_ICON,
+    order: 20,
+    component: TransferView,
+  }), 'dock-files: transfers view')
+  ctx.effect(() => workbench.registerStatusBarItem({
+    id: 'transfers',
+    order: 20,
+    component: TransferStatusBar,
+  }), 'dock-files: transfers status')
 }

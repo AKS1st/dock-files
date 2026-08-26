@@ -41,7 +41,8 @@ export const DICTS: Record<LocaleId, Dict> = {
     copyPath: '复制路径',
     // ── Dialog ──
     ok: '确定',
-    cancel: '取消',
+     cancel: '取消',
+
     confirmDelete: '确定删除 "{name}"？此操作不可恢复。',
     // ── Alerts ──
     clipboardNoImage: '剪贴板中没有图片',
@@ -51,6 +52,25 @@ export const DICTS: Record<LocaleId, Dict> = {
     newFileBase: '新建文件.txt',
     newFolderBase: '新建文件夹',
     fileFallbackName: '文件',
+     transferCenter: '传输中心',
+     transferSummary: '{active} 个活动任务 · {progress}%',
+     clearCompleted: '清除已完成',
+     noTransfers: '暂无传输任务',
+     upload: '上传',
+     download: '下载',
+      browserDownload: '浏览器下载',
+      downloadFailed: '下载失败',
+      symlinkSkipped: '软链接已跳过',
+     pause: '暂停',
+     resume: '继续',
+     openTransferCenter: '打开传输中心',
+     'transferStatus.queued': '排队中',
+     'transferStatus.running': '进行中',
+     'transferStatus.paused': '已暂停',
+     'transferStatus.completed': '已完成',
+     'transferStatus.failed': '失败',
+     'transferStatus.cancelled': '已取消',
+     'transferStatus.skipped': '已跳过',
   },
   en: {
     // ── Toolbar / states ──
@@ -73,7 +93,8 @@ export const DICTS: Record<LocaleId, Dict> = {
     copyPath: 'Copy Path',
     // ── Dialog ──
     ok: 'OK',
-    cancel: 'Cancel',
+     cancel: 'Cancel',
+
     confirmDelete: 'Delete "{name}"? This cannot be undone.',
     // ── Alerts ──
     clipboardNoImage: 'No image in the clipboard',
@@ -83,6 +104,25 @@ export const DICTS: Record<LocaleId, Dict> = {
     newFileBase: 'New File.txt',
     newFolderBase: 'New Folder',
     fileFallbackName: 'File',
+     transferCenter: 'Transfer Center',
+     transferSummary: '{active} active · {progress}%',
+     clearCompleted: 'Clear completed',
+     noTransfers: 'No transfers',
+     upload: 'Upload',
+     download: 'Download',
+      browserDownload: 'Browser download',
+      downloadFailed: 'Download failed',
+      symlinkSkipped: 'Symbolic link skipped',
+     pause: 'Pause',
+     resume: 'Resume',
+     openTransferCenter: 'Open transfer center',
+     'transferStatus.queued': 'Queued',
+     'transferStatus.running': 'In progress',
+     'transferStatus.paused': 'Paused',
+     'transferStatus.completed': 'Completed',
+     'transferStatus.failed': 'Failed',
+     'transferStatus.cancelled': 'Cancelled',
+     'transferStatus.skipped': 'Skipped',
   },
 }
 

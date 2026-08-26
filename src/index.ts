@@ -13,8 +13,10 @@
  * is canonicalized with realpath and must stay inside the session
  * workspace; writes never overwrite — colliding names get a numeric suffix.
  */
-import { cp, mkdir, opendir, realpath, rename as fsRename, rm, stat, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { cp, link, lstat, mkdir, opendir, open, realpath, rename as fsRename, rm, stat, truncate, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 
 export const name = 'dock-files'
@@ -410,8 +412,8 @@ async function saveImageEntry(
   return { path: join(dir, name), name }
 }
 
-/** Decoded size cap for a file dragged into the explorer from the OS. */
-const MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+/** Single-request uploads share the streaming upload size ceiling. */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
 
 /** Save a dragged-in file (base64) under `parent` with a unique name. */
 async function uploadEntry(
@@ -430,6 +432,173 @@ async function uploadEntry(
   const fileName = await uniqueName(dir, name)
   await writeFile(join(dir, fileName), bytes, { flag: 'wx' })
   return { path: join(dir, fileName), name: fileName }
+}
+
+/** Maximum bytes accepted by one streaming upload chunk. */
+const MAX_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
+/** Maximum size of a streaming upload session (4 GiB). */
+const MAX_STREAM_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
+const UPLOAD_SESSION_TTL_MS = 30 * 60 * 1000
+const MAX_ACTIVE_UPLOAD_SESSIONS = 8
+const UPLOAD_CLEANUP_INTERVAL_MS = 60 * 1000
+
+interface UploadSession {
+  uploadId: string
+  sessionId: string
+  parent: string
+  name: string
+  size: number
+  received: number
+  tempPath: string
+  chunkQueue: Promise<void>
+  activeChunk: number
+  finalizing: boolean
+  lastActivity: number
+}
+
+function safeIntegerOf(payload: unknown, key: string): number {
+  const value = (payload as Record<string, unknown> | null)?.[key]
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new WbError('bad-request', `"${key}" must be a non-negative safe integer`, 400)
+  }
+  return value
+}
+
+function queryStringOf(url: URL, key: string): string {
+  const value = url.searchParams.get(key)
+  if (value === null || value === '') throw new WbError('bad-request', `missing "${key}"`, 400)
+  return value
+}
+
+function querySafeIntegerOf(url: URL, key: string): number {
+  const raw = queryStringOf(url, key)
+  if (!/^\d+$/.test(raw)) throw new WbError('bad-request', `"${key}" must be a non-negative safe integer`, 400)
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value)) throw new WbError('bad-request', `"${key}" must be a non-negative safe integer`, 400)
+  return value
+}
+
+async function removeUpload(upload: UploadSession): Promise<void> {
+  await rm(upload.tempPath, { force: true }).catch(() => undefined)
+}
+
+function removeStaleUploads(uploads: Map<string, UploadSession>, now = Date.now()): void {
+  for (const [uploadId, upload] of uploads) {
+    if (now - upload.lastActivity > UPLOAD_SESSION_TTL_MS && upload.activeChunk === 0 && !upload.finalizing) {
+      uploads.delete(uploadId)
+      void removeUpload(upload)
+    }
+  }
+}
+
+/** Stream one confined regular file, or return a structured skip for symlinks. */
+async function streamDownload(
+  cwd: string,
+  rawPath: string,
+  res: ServerResponse,
+): Promise<void> {
+  // resolveWorkspacePath follows links for containment validation, while lstat
+  // on the caller path preserves the link identity for the skip decision.
+  const resolved = await resolveWorkspacePath(cwd, rawPath)
+  const info = await lstat(rawPath).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new WbError('not-found', `file does not exist: "${rawPath}"`, 404)
+    }
+    throw error
+  })
+  if (info.isSymbolicLink()) {
+    writeOk(res, { status: 'skipped', reason: 'symbolic-link', path: rawPath })
+    return
+  }
+  if (!info.isFile()) throw new WbError('bad-request', 'download target is not a regular file', 400)
+  const name = basename(rawPath)
+  res.writeHead(200, {
+    'content-type': 'application/octet-stream',
+    'content-length': String(info.size),
+    'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+  })
+  await new Promise<void>((resolveStream, reject) => {
+    const stream = createReadStream(resolved)
+    stream.once('error', reject)
+    res.once('close', () => {
+      if (!res.writableEnded) stream.destroy()
+    })
+    stream.once('end', resolveStream)
+    stream.pipe(res)
+  })
+}
+
+async function startUpload(
+  cwd: string,
+  sessionId: string,
+  parent: string,
+  name: string,
+  size: number,
+): Promise<UploadSession> {
+  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_STREAM_UPLOAD_BYTES) {
+    throw new WbError('bad-request', 'upload size exceeds the maximum', 400)
+  }
+  validateBasename(name)
+  const dir = await resolveWorkspacePath(cwd, parent)
+  const info = await stat(dir).catch(() => undefined)
+  if (info === undefined || !info.isDirectory()) throw new WbError('fs-error', `"${parent}" is not a directory`, 400)
+  const uploadId = randomUUID()
+  const tempPath = join(dir, `.dsh-upload-${uploadId}-${randomUUID()}.tmp`)
+  await writeFile(tempPath, '', { flag: 'wx' })
+  return {
+    uploadId,
+    sessionId,
+    parent: dir,
+    size,
+    received: 0,
+    name,
+    tempPath,
+    chunkQueue: Promise.resolve(),
+    activeChunk: 0,
+    finalizing: false,
+    lastActivity: Date.now(),
+  }
+}
+
+async function receiveQueuedUploadChunk(req: IncomingMessage, upload: UploadSession, offset: number): Promise<number> {
+  if (upload.finalizing) throw new WbError('bad-request', 'upload session is completing', 409)
+  upload.lastActivity = Date.now()
+  const previous = upload.chunkQueue
+  const current = previous.then(() => receiveUploadChunk(req, upload, offset))
+  // Always release the queue, including when this request fails. The route
+  // removes the failed session/temp file, while already queued requests still
+  // observe the resulting strict offset/file errors.
+  upload.chunkQueue = current.then(() => undefined, () => undefined)
+  return current
+}
+
+async function receiveUploadChunk(req: IncomingMessage, upload: UploadSession, offset: number): Promise<number> {
+  if (offset !== upload.received) throw new WbError('bad-request', 'chunk offset does not match received bytes', 409)
+  if (offset > upload.size) throw new WbError('bad-request', 'chunk offset exceeds upload size', 400)
+  const file = await open(upload.tempPath, 'r+')
+  let received = 0
+  upload.activeChunk += 1
+  try {
+    for await (const chunk of req) {
+      upload.lastActivity = Date.now()
+      const buffer = Buffer.from(chunk)
+      received += buffer.length
+      if (received > MAX_UPLOAD_CHUNK_BYTES || offset + received > upload.size) {
+        throw new WbError('bad-request', 'upload chunk is too large', 400)
+      }
+      if (buffer.length > 0) await file.write(buffer, 0, buffer.length, offset + received - buffer.length)
+    }
+    await file.sync()
+    upload.received += received
+    upload.lastActivity = Date.now()
+    return upload.received
+  } catch (error) {
+    await truncate(upload.tempPath, upload.received).catch(() => undefined)
+    throw error
+  } finally {
+    upload.activeChunk -= 1
+    await file.close().catch(() => undefined)
+  }
 }
 
 // ── Trust fence (stripped from dsh-better-sidebar/src/trust-fence.ts) ─────
@@ -515,8 +684,23 @@ function sessionCwdOf(ctx: WbContext, sessionId: string | undefined): string {
   return process.cwd()
 }
 
+/** Require a live session with an authoritative, non-empty workspace. */
+function requireSessionCwd(ctx: WbContext, sessionId: string | undefined): string {
+  if (sessionId === undefined) throw new WbError('bad-request', 'missing "sessionId"', 400)
+  const session = ctx.sessions.get(sessionId)
+  if (session === undefined) throw new WbError('not-found', 'session not found', 404)
+  if (typeof session.header.cwd !== 'string' || session.header.cwd === '') {
+    throw new WbError('bad-request', 'session cwd is empty', 400)
+  }
+  return session.header.cwd
+}
+
 export function apply(ctx: WbContext): void {
-  ctx.effect(() => ctx.webServer.register({
+  const uploads = new Map<string, UploadSession>()
+  let startingUploads = 0
+  ctx.effect(() => {
+    const cleanupTimer = setInterval(() => removeStaleUploads(uploads), UPLOAD_CLEANUP_INTERVAL_MS)
+    const unregister = ctx.webServer.register({
     kind: 'prefix',
     path: '/wb-files',
     handler: async (req, res) => {
@@ -524,21 +708,125 @@ export function apply(ctx: WbContext): void {
         writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
         return
       }
-      if (req.method !== 'POST') {
+      const requestUrl = new URL(req.url ?? '/', 'http://dsh.internal')
+      const requestPathname = requestUrl.pathname
+      const method = requestPathname.startsWith('/wb-files/') ? requestPathname.slice('/wb-files/'.length) : undefined
+      const isDownload = req.method === 'GET' && method === 'download'
+      if (req.method !== 'POST' && !isDownload) {
         writeJson(res, 405, { ok: false, error: { code: 'bad-request', message: 'method not allowed' } })
         return
       }
-      const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
-      const method = pathname.startsWith('/wb-files/') ? pathname.slice('/wb-files/'.length) : undefined
       if (method === undefined || method.includes('/')) {
         writeError(res, new WbError('not-found', `unknown /wb-files method "${method}"`, 404))
         return
       }
       try {
-        const payload = await readJsonBody(req)
+        if (method === 'download') {
+          const sessionId = queryStringOf(requestUrl, 'sessionId')
+          const cwd = requireSessionCwd(ctx, sessionId)
+          const path = queryStringOf(requestUrl, 'path')
+          await streamDownload(cwd, path, res)
+          return
+        }
+        if (method === 'uploadChunk') {
+         const sessionId = queryStringOf(requestUrl, 'sessionId')
+         requireSessionCwd(ctx, sessionId)
+         const uploadId = queryStringOf(requestUrl, 'uploadId')
+         const offset = querySafeIntegerOf(requestUrl, 'offset')
+         const upload = uploads.get(uploadId)
+         if (upload === undefined || upload.sessionId !== sessionId) throw new WbError('not-found', 'upload session not found', 404)
+         try {
+           const received = await receiveQueuedUploadChunk(req, upload, offset)
+           writeOk(res, { uploadId, size: upload.size, received })
+         } catch (error) {
+           if (!upload.finalizing && uploads.get(uploadId) === upload) {
+             uploads.delete(uploadId)
+             await removeUpload(upload)
+           }
+           throw error
+         }
+         return
+       }
+       const payload = await readJsonBody(req)
         const sessionId = stringOrUndefined(payload, 'sessionId')
-        const cwd = sessionCwdOf(ctx, sessionId)
-        if (method === 'list') {
+        let cwd = ''
+         if (method === 'uploadStart') {
+            removeStaleUploads(uploads)
+             if (uploads.size + startingUploads >= MAX_ACTIVE_UPLOAD_SESSIONS) {
+               throw new WbError('bad-request', 'too many active upload sessions', 429)
+             }
+             startingUploads += 1
+            if (true) {
+              if (true) {
+              }
+            }
+            const startCwd = requireSessionCwd(ctx, sessionId)
+            const parent = stringOf(payload, 'parent')
+            const name = stringOf(payload, 'name')
+            const size = safeIntegerOf(payload, 'size')
+            let upload: UploadSession
+             try {
+               upload = await startUpload(startCwd, sessionId as string, parent, name, size)
+             } catch (error) {
+               startingUploads -= 1
+               throw error
+             }
+             startingUploads -= 1
+            uploads.set(upload.uploadId, upload)
+            writeOk(res, { uploadId: upload.uploadId, size: upload.size, received: upload.received, name: upload.name })
+            return
+          }
+          cwd = sessionCwdOf(ctx, sessionId)
+          if (method === 'uploadComplete') {
+            const completeSessionCwd = requireSessionCwd(ctx, sessionId)
+            const uploadId = stringOf(payload, 'uploadId')
+            const upload = uploads.get(uploadId)
+            if (upload === undefined || upload.sessionId !== sessionId) throw new WbError('not-found', 'upload session not found', 404)
+            if (upload.finalizing) throw new WbError('bad-request', 'upload session is completing', 409)
+             upload.finalizing = true
+            try {
+              await upload.chunkQueue
+              const size = safeIntegerOf(payload, 'size')
+              if (size !== upload.size || upload.received !== upload.size) throw new WbError('bad-request', 'upload size does not match received bytes', 400)
+              const parent = await resolveWorkspacePath(completeSessionCwd, upload.parent)
+              const info = await stat(parent).catch(() => undefined)
+              if (info === undefined || !info.isDirectory()) throw new WbError('fs-error', 'upload destination is no longer a directory', 400)
+              let name: string
+              let path: string
+              for (;;) {
+                name = await uniqueName(parent, upload.name)
+                path = join(parent, name)
+                try {
+                  await link(upload.tempPath, path)
+                  await unlink(upload.tempPath)
+                  break
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+                  throw error
+                }
+              }
+              writeOk(res, { path, name })
+            } finally {
+              if (uploads.get(uploadId) === upload) uploads.delete(uploadId)
+              await removeUpload(upload)
+            }
+            return
+          }
+          if (method === 'uploadCancel') {
+            const cancelSessionId = stringOf(payload, 'sessionId')
+            requireSessionCwd(ctx, cancelSessionId)
+            const uploadId = stringOf(payload, 'uploadId')
+            const upload = uploads.get(uploadId)
+            if (upload !== undefined) {
+              if (upload.sessionId !== cancelSessionId) throw new WbError('not-found', 'upload session not found', 404)
+              if (upload.finalizing) throw new WbError('bad-request', 'upload session is completing', 409)
+              if (uploads.get(uploadId) === upload) uploads.delete(uploadId)
+              await removeUpload(upload)
+            }
+            writeOk(res, { uploadId, cancelled: upload !== undefined })
+            return
+          }
+          if (method === 'list') {
           const raw = stringOrUndefined(payload, 'path')
           const target = raw === undefined ? cwd : await resolveWorkspacePath(cwd, raw)
           const listing = await listDirectory(target)
@@ -607,7 +895,14 @@ export function apply(ctx: WbContext): void {
         writeError(res, error)
       }
     },
-  }), 'dock-files: /wb-files routes')
+    })
+    return () => {
+      clearInterval(cleanupTimer)
+      unregister()
+      for (const upload of uploads.values()) void removeUpload(upload)
+      uploads.clear()
+    }
+  }, 'dock-files: /wb-files routes')
 }
 
 // Kept referenced so rootLabel/parentOf survive tree-shaking for the
