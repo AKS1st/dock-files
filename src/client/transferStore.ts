@@ -24,6 +24,7 @@ export interface TransferTask {
   totalBytes: number
   transferredBytes: number
   speedBytesPerSecond: number
+  dedupeKey?: string
   status: TransferStatus
   error?: string
   createdAt: number
@@ -45,6 +46,7 @@ export interface CreateTransferTaskInput {
   sessionId?: string
   totalBytes: number
   transferredBytes?: number
+  dedupeKey?: string
   controller?: TransferController
 }
 
@@ -169,6 +171,7 @@ export function createTask(input: CreateTransferTaskInput): TransferTask {
       finiteNonNegative(input.totalBytes),
     ),
     speedBytesPerSecond: 0,
+    ...(input.dedupeKey === undefined ? {} : { dedupeKey: input.dedupeKey }),
     status: 'queued',
     createdAt: now,
     updatedAt: now,
@@ -182,6 +185,15 @@ export function createTask(input: CreateTransferTaskInput): TransferTask {
 
 /** Alias emphasizing that this task is intended for a transfer pipeline. */
 export const createTransferTask = createTask
+
+/** Return whether an equivalent upload was created within the debounce window. */
+export function hasRecentUpload(dedupeKey: string, now = Date.now()): boolean {
+  return Array.from(tasks.values()).some((task) =>
+    task.kind === 'upload' &&
+    task.dedupeKey === dedupeKey &&
+    now - task.createdAt >= 0 &&
+    now - task.createdAt < 3000)
+}
 
 export function updateTask(id: string, patch: TransferTaskPatch): TransferTask | undefined {
   const current = tasks.get(id)

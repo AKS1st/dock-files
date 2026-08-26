@@ -29,6 +29,7 @@ import { openTransferView } from './TransferView'
 import {
   createTransferTask,
   getSnapshot as getTransferSnapshot,
+  hasRecentUpload,
   subscribe as subscribeTransfers,
   startTask,
   updateTask,
@@ -543,7 +544,10 @@ export function ExplorerView(props: ViewProps): ReactNode {
            }
         },
       }
-      const task = createTransferTask({ kind: 'upload', name: item.name, sourcePath: item.name, targetPath: dest, sessionId, totalBytes: item.blob.size, controller })
+      const fileStamp = item.blob instanceof File ? item.blob.lastModified : 0
+      const dedupeKey = `${sessionId ?? ''}\u0000${dest}\u0000${item.name}\u0000${item.blob.size}\u0000${fileStamp}`
+      if (hasRecentUpload(dedupeKey)) continue
+      const task = createTransferTask({ kind: 'upload', name: item.name, sourcePath: item.name, targetPath: dest, sessionId, totalBytes: item.blob.size, dedupeKey, controller })
       void startTask(task.id).catch((cause) => {
         if (!cancelRequested) reportError(cause)
       })
