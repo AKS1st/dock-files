@@ -19,6 +19,7 @@ export declare function treeCorner(size?: number): ReactNode;
 export declare function refreshIcon(size?: number, className?: string): ReactNode;
 export declare function copyIcon(size?: number): ReactNode;
 export declare function plusIcon(size?: number): ReactNode;
+export declare function uploadIcon(size?: number): ReactNode;
 export declare function editIcon(size?: number): ReactNode;
 export declare function trashIcon(size?: number): ReactNode;
 /** Open arrow (points up-right). */

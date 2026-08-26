@@ -166,6 +166,16 @@ const COLLAPSE_ALL: Glyph = {
   ],
 }
 
+/** Upload arrow into a tray — imports OS files into the current directory. */
+const UPLOAD: Glyph = {
+  viewBox: '0 0 16 16',
+  size: 16,
+  layers: [
+    { d: 'M7.35 10.5V3.95L5.1 6.2L4.05 5.15L8 1.2L11.95 5.15L10.9 6.2L8.65 3.95V10.5H7.35Z' },
+    { d: 'M2.2 9.5H3.5V13.5H12.5V9.5H13.8V13.5C13.8 14.22 13.22 14.8 12.5 14.8H3.5C2.78 14.8 2.2 14.22 2.2 13.5V9.5Z' },
+  ],
+}
+
 /** ic_ds_plus_outline_16 — new file. */
 const PLUS: Glyph = {
   viewBox: '0 0 16 16',
@@ -355,6 +365,10 @@ export function copyIcon(size = 14): ReactNode {
 
 export function plusIcon(size = 14): ReactNode {
   return svgIcon(PLUS, { size })
+}
+
+export function uploadIcon(size = 14): ReactNode {
+  return svgIcon(UPLOAD, { size })
 }
 
 export function editIcon(size = 14): ReactNode {

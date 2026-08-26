@@ -52,6 +52,7 @@ import {
   refreshIcon,
   trashIcon,
   treeArrow,
+  uploadIcon,
   treeCorner,
   warningIcon,
 } from './icons'
@@ -176,10 +177,12 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const [loading, setLoading] = useState(false)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null)
   const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null)
-  /** Clipboard-image probe result for the current menu: 'has' shows the
-   *  "paste image" item; any other state hides it (no image / unsupported /
-   *  read denied). */
+  /** System clipboard probe for the current menu. */
+  const [clipboardProbe, setClipboardProbe] = useState<'unknown' | 'file' | 'none'>('unknown')
+  /** Clipboard-image probe result for the current menu. */
   const [imageProbe, setImageProbe] = useState<'unknown' | 'has' | 'none'>('unknown')
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
+  const uploadDestRef = useRef<string | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
   /** Internal drag: the path being dragged (dimmed), and the highlighted drop target. */
   const [dragSource, setDragSource] = useState<string | null>(null)
@@ -217,6 +220,8 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setChildren(new Map())
     setExpanded(new Set())
     setClipboard(null)
+    setClipboardProbe('unknown')
+    setImageProbe('unknown')
     setRenaming(null)
     setDragSource(null)
     setDragOver(null)
@@ -397,27 +402,48 @@ export function ExplorerView(props: ViewProps): ReactNode {
   }
 
   /**
-   * Probe the system clipboard for an image so the "paste image" menu item
-   * shows only when one is actually available. Called while opening a menu;
-   * the right-click is a user gesture, so the first read may raise the
-   * browser's clipboard permission prompt. Any failure (unsupported API,
-   * permission denied, no image) hides the item.
+   * Probe the system clipboard while opening a menu. Browsers expose copied
+   * OS files through the paste event, but newer Clipboard API implementations
+   * also expose a file/octet-stream item here. The file probe lets the menu
+   * offer the reliable file-picker upload path instead of a misleading paste.
    */
-  const probeClipboardImage = (): void => {
+  const probeClipboardContents = (): void => {
+    setClipboardProbe('unknown')
     setImageProbe('unknown')
     void (async () => {
-      let has = false
+      let hasFile = false
+      let hasImage = false
       try {
         if (typeof navigator.clipboard !== 'undefined' && typeof navigator.clipboard.read === 'function') {
           const items = await navigator.clipboard.read()
-          has = items.some((item) => item.types.some((type) => type.startsWith('image/')))
+          for (const item of items) {
+            hasImage ||= item.types.some((type) => type.startsWith('image/'))
+            hasFile ||= item.types.some((type) =>
+              type === 'Files' || type === 'text/uri-list' || type === 'application/octet-stream' || type === 'application/x-moz-file' || type.endsWith('/file'))
+          }
         }
       } catch {
-        // Read denied or not permitted yet: keep the item hidden.
-        has = false
+        // Read denied or unsupported: keep both clipboard actions conservative.
       }
-      setImageProbe(has ? 'has' : 'none')
+      setClipboardProbe(hasFile ? 'file' : 'none')
+      setImageProbe(hasImage ? 'has' : 'none')
     })()
+  }
+
+  /** Open the native multi-file picker for a known destination directory. */
+  const chooseUpload = (dest: string): void => {
+    setMenu(null)
+    uploadDestRef.current = dest
+    uploadInputRef.current?.click()
+  }
+
+  const onUploadInputChange = (event: Event): void => {
+    const input = event.currentTarget as HTMLInputElement
+    const dest = uploadDestRef.current ?? root
+    uploadDestRef.current = null
+    if (dest !== null && input.files !== null) uploadFiles(input.files, dest)
+    // Allow selecting the same file again for a later upload.
+    input.value = ''
   }
 
   /** Paste an image from the system clipboard into `dest` (saved as a file). */
@@ -814,7 +840,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
             y: event.clientY,
             target: { kind: entry.isDir ? 'dir' : 'file', path: entry.path },
           })
-          if (entry.isDir) probeClipboardImage()
+          if (entry.isDir) probeClipboardContents()
         },
         onDragStart: (event: DragEvent) => {
           const dt = event.dataTransfer
@@ -950,19 +976,30 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const buildMenuItems = (): ReactNode[] => {
     if (menu === null) return []
     const target = menu.target
-    // The "paste image" item only shows when the clipboard probe found an image.
+    // A system file clipboard is handled by the native picker. This keeps
+    // right-click reliable even when the browser exposes clipboard files only
+    // as a paste-event payload, while Ctrl+V still imports them directly.
+    const pasteOrUploadItem = (dest: string): ReactNode =>
+      clipboardProbe === 'file'
+        ? menuItem('upload', uploadIcon(13), t('upload'), () => chooseUpload(dest))
+        : menuItem(
+          'paste',
+          pasteIcon(13),
+          clipboard === null ? t('paste') : t('pasteWithName', { name: baseNameOf(clipboard.path) }),
+          () => pasteInto(dest),
+          clipboard === null,
+        )
     const pasteImageItem = (dest: string): ReactNode[] =>
       imageProbe === 'has'
         ? [menuItem('paste-image', imageIcon(13), t('pasteImage'), () => pasteImageInto(dest))]
         : []
     if (target.kind === 'empty') {
       if (root === null) return []
-      const label = clipboard === null ? t('paste') : t('pasteWithName', { name: baseNameOf(clipboard.path) })
       return [
         menuItem('new-file', plusIcon(13), t('newFile'), () => startCreate('file', root)),
         menuItem('new-dir', newFolderIcon(13), t('newFolder'), () => startCreate('dir', root)),
         separator('s1'),
-        menuItem('paste', pasteIcon(13), label, () => pasteInto(root), clipboard === null),
+        pasteOrUploadItem(root),
         ...pasteImageItem(root),
         separator('s2'),
         menuItem('refresh', refreshIcon(13), t('refresh'), () => void load()),
@@ -970,7 +1007,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
     const path = target.path as string
     if (target.kind === 'dir') {
-      const pasteLabel = clipboard === null ? t('paste') : t('pasteWithName', { name: baseNameOf(clipboard.path) })
       return [
         menuItem('new-file', plusIcon(13), t('newFile'), () => startCreate('file', path)),
         menuItem('new-dir', newFolderIcon(13), t('newFolder'), () => startCreate('dir', path)),
@@ -979,7 +1015,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('rename', editIcon(13), t('rename'), () => beginRename(path)),
         menuItem('copy', copyIcon(13), t('copy'), () => setClip('copy', path)),
         menuItem('cut', cutIcon(13), t('cut'), () => setClip('cut', path)),
-        menuItem('paste', pasteIcon(13), pasteLabel, () => pasteInto(path), clipboard === null),
+        pasteOrUploadItem(path),
         ...pasteImageItem(path),
         separator('s2'),
         menuItem('delete', trashIcon(13), t('delete'), () => removePath(path)),
@@ -1087,6 +1123,19 @@ export function ExplorerView(props: ViewProps): ReactNode {
         folderIcon(true, 13),
         createElement('span', null, root ?? '…'),
       ),
+      createElement('input', {
+        ref: uploadInputRef,
+        type: 'file',
+        multiple: true,
+        hidden: true,
+        onChange: onUploadInputChange,
+      }),
+      createElement('button', {
+        className: 'df-icon-btn',
+        title: t('upload'),
+        disabled: root === null,
+        onClick: () => { if (root !== null) chooseUpload(root) },
+      }, uploadIcon(14)),
       createElement('button', {
         className: 'df-icon-btn',
         title: t('refresh'),
@@ -1113,7 +1162,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         event.preventDefault()
         setPasteDir(null)
         setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
-        probeClipboardImage()
+        probeClipboardContents()
       },
       // The empty area is also a drop target for the root directory.
       onDragEnter: (event: DragEvent) => {
@@ -1148,7 +1197,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
             event.stopPropagation()
             setPasteDir(null)
             setMenu({ x: event.clientX, y: event.clientY, target: { kind: 'empty' } })
-            probeClipboardImage()
+            probeClipboardContents()
           },
           onDragEnter: (event: DragEvent) => {
             event.preventDefault()
