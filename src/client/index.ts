@@ -6,13 +6,12 @@
  * do. Type-only imports only; all runtime collaboration goes through
  * ctx.workbench / ctx.files method calls.
  */
-import { createElement, useSyncExternalStore, type ReactNode } from 'react'
+import { createElement, type ReactNode } from 'react'
 import type {} from './contract.ts'
 import type { IconSpec, ViewProps, WorkbenchContext, WorkbenchService } from './contract.ts'
 import { ExplorerView } from './ExplorerView'
 import { TransferStatusBar, TransferView, transferIcon } from './TransferView'
 import { collapseAllIcon, refreshIcon, uploadIcon } from './icons'
-import { getSnapshot as getTransferSnapshot, subscribe as subscribeTransfers } from './transferStore'
 
 export { openTransferView } from './TransferView'
 import { mountStyles } from './styles'
@@ -231,10 +230,6 @@ function dispatchHeaderAction(name: 'upload' | 'refresh' | 'collapse' | 'transfe
 
 /** Actions rendered in the dock shell's fixed Files title row. */
 function FilesHeaderActions(_props: ViewProps): ReactNode {
-  const transferSnapshot = useSyncExternalStore(subscribeTransfers, getTransferSnapshot)
-  const progress = transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
-    ? Math.min(100, Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100))
-    : 0
   const button = (key: 'upload' | 'refresh' | 'collapse' | 'transfers', title: string, icon: ReactNode): ReactNode =>
     createElement('button', {
       key,
@@ -249,12 +244,6 @@ function FilesHeaderActions(_props: ViewProps): ReactNode {
       button('collapse', '折叠全部', collapseAllIcon(14)),
       button('transfers', '打开传输中心', transferIcon(14)),
     ),
-    createElement('div', {
-      className: 'df-shell-progress',
-      title: transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
-        ? `传输中 ${progress}%`
-        : undefined,
-    }, createElement('div', { className: 'df-shell-progress-fill', style: { width: `${progress}%` } })),
   )
 }
 

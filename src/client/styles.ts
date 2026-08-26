@@ -40,7 +40,6 @@ const CSS = `
 .df-pathbar svg { flex: none; color: var(--dsw-alias-label-secondary, #656d76); }
 .df-pathbar > span { overflow: hidden; text-overflow: ellipsis; }
 .df-pathbar:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.10)); }
-
 /* ── Fixed Files title-row actions and progress ── */
 .df-shell-actions {
   display: flex;
@@ -335,8 +334,14 @@ const CSS = `
 .df-transfer-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.3fr) minmax(130px, 1fr) auto; gap: 8px; align-items: center; padding: 8px 4px; border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0); }
 .df-transfer-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08)); }
 .df-transfer-main, .df-transfer-paths, .df-transfer-progress { min-width: 0; }
-.df-transfer-name, .df-transfer-paths span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-transfer-name, .df-transfer-path-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
 .df-transfer-name { font-weight: 600; }
+.df-transfer-path-text { flex: 1 1 0; }
 .df-transfer-kind, .df-transfer-progress > span { color: var(--dsw-alias-label-secondary, #656d76); font-size: 11px; }
 .df-transfer-paths { display: flex; gap: 4px; color: var(--dsw-alias-label-secondary, #656d76); }
 .df-transfer-path-arrow { flex: none; }

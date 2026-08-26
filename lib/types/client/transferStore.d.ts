@@ -14,6 +14,7 @@ export interface TransferTask {
     sessionId?: string;
     totalBytes: number;
     transferredBytes: number;
+    speedBytesPerSecond: number;
     status: TransferStatus;
     error?: string;
     createdAt: number;

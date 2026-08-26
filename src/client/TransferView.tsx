@@ -1,4 +1,4 @@
-import { createElement, useSyncExternalStore, type ReactNode } from 'react'
+import { createElement, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import type { ViewProps, WorkbenchContext, WorkbenchService } from './contract.ts'
 import {
   cancelTask,
@@ -29,6 +29,36 @@ function formatBytes(bytes: number): string {
 
 function statusLabel(status: TransferStatus, t: (key: string) => string): string {
   return t(`transferStatus.${status}`)
+}
+
+function formatSpeed(bytesPerSecond: number): string {
+  return `${formatBytes(Math.max(0, bytesPerSecond))}/s`
+}
+
+function ScrollingText({ value, className, title }: { value: string; className: string; title?: string }): ReactNode {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const element = ref.current
+    if (element === null) return
+    let frame = 0
+    let pauseUntil = performance.now() + 900
+    const tick = (now: number): void => {
+      const maxScroll = element.scrollWidth - element.clientWidth
+      if (maxScroll > 0 && now >= pauseUntil) {
+        element.scrollLeft += 0.35
+        if (element.scrollLeft >= maxScroll) {
+          element.scrollLeft = 0
+          pauseUntil = now + 900
+        }
+      } else if (maxScroll <= 0) {
+        element.scrollLeft = 0
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [value])
+  return createElement('div', { ref, className, title }, value)
 }
 
 function taskProgress(task: TransferTask): number {
@@ -79,7 +109,7 @@ export function TransferView({ ctx }: ViewProps): ReactNode {
       createElement('button', {
         type: 'button',
         className: 'df-transfer-clear',
-        onClick: () => clearCompleted(false),
+        onClick: () => clearCompleted(true),
       }, t('clearCompleted')),
     ),
     createElement('div', { className: 'df-transfer-list' },
@@ -91,18 +121,18 @@ export function TransferView({ ctx }: ViewProps): ReactNode {
           const canResume = task.status === 'paused'
           return createElement('article', { className: 'df-transfer-row', key: task.id },
             createElement('div', { className: 'df-transfer-main' },
-              createElement('div', { className: 'df-transfer-name', title: task.name }, task.name),
+              createElement(ScrollingText, { className: 'df-transfer-name', title: task.name, value: task.name }),
               createElement('div', { className: 'df-transfer-kind' }, `${t(task.kind === 'upload' ? 'upload' : 'download')} · ${statusLabel(task.status, t)}`),
             ),
             createElement('div', { className: 'df-transfer-paths' },
-              createElement('span', { title: task.sourcePath }, task.sourcePath),
+              createElement(ScrollingText, { className: 'df-transfer-path-text', title: task.sourcePath, value: task.sourcePath }),
               createElement('span', { className: 'df-transfer-path-arrow', 'aria-hidden': true }, '→'),
-              createElement('span', { title: task.targetPath ?? '' }, task.targetPath ?? '—'),
+              createElement(ScrollingText, { className: 'df-transfer-path-text', title: task.targetPath ?? '', value: task.targetPath ?? '—' }),
             ),
             createElement('div', { className: 'df-transfer-progress' },
               createElement('div', { className: 'df-transfer-progress-track' },
                 createElement('div', { className: 'df-transfer-progress-fill', style: { width: `${progress}%` } })),
-              createElement('span', null, `${progress}% · ${formatBytes(task.transferredBytes)} / ${formatBytes(task.totalBytes)}`),
+              createElement('span', null, `${progress}% · ${formatBytes(task.transferredBytes)} / ${formatBytes(task.totalBytes)} · ${formatSpeed(task.speedBytesPerSecond)}`),
             ),
             createElement('div', { className: 'df-transfer-actions' },
               canPause ? actionButton(t('pause'), () => { void pauseTask(task.id) }) : null,

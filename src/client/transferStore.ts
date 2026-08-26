@@ -23,6 +23,7 @@ export interface TransferTask {
   sessionId?: string
   totalBytes: number
   transferredBytes: number
+  speedBytesPerSecond: number
   status: TransferStatus
   error?: string
   createdAt: number
@@ -167,6 +168,7 @@ export function createTask(input: CreateTransferTaskInput): TransferTask {
       finiteNonNegative(input.transferredBytes),
       finiteNonNegative(input.totalBytes),
     ),
+    speedBytesPerSecond: 0,
     status: 'queued',
     createdAt: now,
     updatedAt: now,
@@ -194,15 +196,23 @@ export function updateTask(id: string, patch: TransferTaskPatch): TransferTask |
     : finiteNonNegative(patch.transferredBytes, Number.NaN)
   if (!Number.isFinite(totalBytes) || !Number.isFinite(transferredBytes)) return current
 
+  const now = Date.now()
+  const nextTransferredBytes = Math.min(transferredBytes, totalBytes)
+  const elapsedMs = Math.max(1, now - current.updatedAt)
+  const byteDelta = Math.max(0, nextTransferredBytes - current.transferredBytes)
+  const speedBytesPerSecond = byteDelta > 0
+    ? byteDelta * 1000 / elapsedMs
+    : current.speedBytesPerSecond
   const next = copyTask({
     ...current,
     ...patch,
     status: patch.status === undefined ? current.status : patch.status,
     totalBytes,
-    transferredBytes: Math.min(transferredBytes, totalBytes),
+    transferredBytes: nextTransferredBytes,
+    speedBytesPerSecond,
     id: current.id,
     createdAt: current.createdAt,
-    updatedAt: Date.now(),
+    updatedAt: now,
   })
   tasks.set(id, next)
   if (TERMINAL.has(next.status)) controllers.delete(id)

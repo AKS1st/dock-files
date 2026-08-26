@@ -160,6 +160,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
   // icons resolve through the files service at render time.
   useSyncExternalStore(files?.subscribe ?? NOOP_SUBSCRIBE, files?.getIconVersion ?? NOOP_SNAPSHOT)
   const transferSnapshot = useSyncExternalStore(subscribeTransfers ?? TRANSFER_NOOP_SUBSCRIBE, getTransferSnapshot)
+  const totalTransferProgress = transferSnapshot.totalBytes > 0
+    ? Math.min(100, Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100))
+    : 0
   // Locale-aware copy (re-renders on DSH locale switch).
   const locale = useLocale(ctx)
   const t = useCallback(
@@ -176,8 +179,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const [loading, setLoading] = useState(false)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null)
   const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null)
-  /** System clipboard probe for the current menu. */
-  const [clipboardProbe, setClipboardProbe] = useState<'unknown' | 'file' | 'none'>('unknown')
   /** Clipboard-image probe result for the current menu. */
   const [imageProbe, setImageProbe] = useState<'unknown' | 'has' | 'none'>('unknown')
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
@@ -219,7 +220,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
     setChildren(new Map())
     setExpanded(new Set())
     setClipboard(null)
-    setClipboardProbe('unknown')
     setImageProbe('unknown')
     setRenaming(null)
     setDragSource(null)
@@ -400,31 +400,21 @@ export function ExplorerView(props: ViewProps): ReactNode {
     })()
   }
 
-  /**
-   * Probe the system clipboard while opening a menu. Browsers expose copied
-   * OS files through the paste event, but newer Clipboard API implementations
-   * also expose a file/octet-stream item here. The file probe lets the menu
-   * offer the reliable file-picker upload path instead of a misleading paste.
-   */
+  /** Probe clipboard images while opening a menu. */
   const probeClipboardContents = (): void => {
-    setClipboardProbe('unknown')
     setImageProbe('unknown')
     void (async () => {
-      let hasFile = false
       let hasImage = false
       try {
         if (typeof navigator.clipboard !== 'undefined' && typeof navigator.clipboard.read === 'function') {
           const items = await navigator.clipboard.read()
           for (const item of items) {
             hasImage ||= item.types.some((type) => type.startsWith('image/'))
-            hasFile ||= item.types.some((type) =>
-              type === 'Files' || type === 'text/uri-list' || type === 'application/octet-stream' || type === 'application/x-moz-file' || type.endsWith('/file'))
           }
         }
       } catch {
-        // Read denied or unsupported: keep both clipboard actions conservative.
+        // Read denied or unsupported: no image action is shown.
       }
-      setClipboardProbe(hasFile ? 'file' : 'none')
       setImageProbe(hasImage ? 'has' : 'none')
     })()
   }
@@ -1011,19 +1001,19 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const buildMenuItems = (): ReactNode[] => {
     if (menu === null) return []
     const target = menu.target
-    // A system file clipboard is handled by the native picker. This keeps
-    // right-click reliable even when the browser exposes clipboard files only
-    // as a paste-event payload, while Ctrl+V still imports them directly.
+    // OS-copied files are not exposed consistently by Clipboard.read(): some
+    // browsers expose them only through the subsequent paste event. Keep an
+    // upload action available for that case; Ctrl+V still imports the actual
+    // clipboard files through the paste listener above.
     const pasteOrUploadItem = (dest: string): ReactNode =>
-      clipboardProbe === 'file'
-        ? menuItem('upload', uploadIcon(13), t('upload'), () => chooseUpload(dest))
-        : menuItem(
+      clipboard !== null
+        ? menuItem(
           'paste',
           pasteIcon(13),
-          clipboard === null ? t('paste') : t('pasteWithName', { name: baseNameOf(clipboard.path) }),
+          t('pasteWithName', { name: baseNameOf(clipboard.path) }),
           () => pasteInto(dest),
-          clipboard === null,
         )
+        : menuItem('upload', uploadIcon(13), t('upload'), () => chooseUpload(dest))
     const pasteImageItem = (dest: string): ReactNode[] =>
       imageProbe === 'has'
         ? [menuItem('paste-image', imageIcon(13), t('pasteImage'), () => pasteImageInto(dest))]
@@ -1157,6 +1147,19 @@ export function ExplorerView(props: ViewProps): ReactNode {
     },
       folderIcon(true, 13),
       createElement('span', null, root ?? '…'),
+    ),
+    createElement('div', {
+      className: 'df-shell-progress',
+      role: 'progressbar',
+      'aria-valuemin': 0,
+      'aria-valuemax': 100,
+      'aria-valuenow': totalTransferProgress,
+      title: `${totalTransferProgress}%`,
+    },
+      createElement('div', {
+        className: 'df-shell-progress-fill',
+        style: { width: `${totalTransferProgress}%` },
+      }),
     ),
     createElement('input', {
       ref: uploadInputRef,
