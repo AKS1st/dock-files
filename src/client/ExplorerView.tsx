@@ -154,6 +154,20 @@ interface UploadItem {
   mime?: string
 }
 
+interface DownloadWritable {
+  write(data: Uint8Array): Promise<void>
+  close(): Promise<void>
+  abort?(reason?: unknown): Promise<void>
+}
+
+interface SaveFileHandle {
+  createWritable(): Promise<DownloadWritable>
+}
+
+interface NavigatorWithSavePicker extends Navigator {
+  showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<SaveFileHandle>
+}
+
 export function ExplorerView(props: ViewProps): ReactNode {
   const { ctx, sessionId, active } = props
   const files = ctx.get<FilesService>('files')
@@ -583,8 +597,21 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
     const controller: TransferController = {
       start: async (task) => {
+        let writable: DownloadWritable | undefined
         try {
-          const response = await fetch(`/wb-files/download?sessionId=${encodeURIComponent(sessionId ?? '')}&path=${encodeURIComponent(path)}`, { signal: abort.signal })
+          const downloadUrl = `/wb-files/download?sessionId=${encodeURIComponent(sessionId ?? '')}&path=${encodeURIComponent(path)}`
+          const savePicker = (navigator as NavigatorWithSavePicker).showSaveFilePicker
+          if (savePicker === undefined) {
+            const anchor = document.createElement('a')
+            anchor.href = downloadUrl
+            anchor.download = baseNameOf(path)
+            anchor.click()
+            updateTask(task.id, { status: 'completed' })
+            return
+          }
+          const handle = await savePicker({ suggestedName: baseNameOf(path) })
+          writable = await handle.createWritable()
+          const response = await fetch(downloadUrl, { signal: abort.signal })
           const contentType = response.headers.get('content-type') ?? ''
           if (contentType.includes('application/json')) {
             const json = await response.json() as { ok?: boolean; value?: { skipped?: boolean; reason?: string }; error?: { message?: string } }
@@ -597,37 +624,34 @@ export function ExplorerView(props: ViewProps): ReactNode {
           if (!response.ok) throw new Error(t('downloadFailed'))
           const length = Number(response.headers.get('content-length') ?? 0)
           if (length > 0) updateTask(task.id, { totalBytes: length })
-          let blob: Blob
           if (response.body !== null) {
             const reader = response.body.getReader()
-            const chunks: Blob[] = []
             let transferred = 0
             for (;;) {
               await waitIfPaused()
               if (cancelRequested) return
               const part = await reader.read()
               if (part.done) break
-              chunks.push(new Blob([part.value]))
+              await writable.write(part.value)
               transferred += part.value.byteLength
               updateTask(task.id, { transferredBytes: transferred, ...(length > 0 ? { totalBytes: length } : {}) })
             }
-            blob = new Blob(chunks)
+            await writable.close()
             if (length === 0) updateTask(task.id, { totalBytes: transferred })
           } else {
             const buffer = await response.arrayBuffer()
             if (cancelRequested) return
-            blob = new Blob([buffer])
+            await writable.write(new Uint8Array(buffer))
+             await writable.close()
             updateTask(task.id, { totalBytes: buffer.byteLength, transferredBytes: buffer.byteLength })
           }
           if (cancelRequested) return
-          const url = URL.createObjectURL(blob)
           const anchor = document.createElement('a')
-          anchor.href = url
           anchor.download = baseNameOf(path)
           anchor.click()
-          URL.revokeObjectURL(url)
           updateTask(task.id, { status: 'completed' })
         } catch (cause) {
+          if (writable !== undefined) await writable.abort?.(cause).catch(() => undefined)
           if (abort.signal.aborted || cancelled) return
           throw cause
         }

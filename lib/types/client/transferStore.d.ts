@@ -15,6 +15,7 @@ export interface TransferTask {
     totalBytes: number;
     transferredBytes: number;
     speedBytesPerSecond: number;
+    dedupeKey?: string;
     status: TransferStatus;
     error?: string;
     createdAt: number;
@@ -34,6 +35,7 @@ export interface CreateTransferTaskInput {
     sessionId?: string;
     totalBytes: number;
     transferredBytes?: number;
+    dedupeKey?: string;
     controller?: TransferController;
 }
 type MutableTaskFields = Pick<TransferTask, 'name' | 'sourcePath' | 'targetPath' | 'sessionId' | 'totalBytes' | 'transferredBytes' | 'status' | 'error'>;
@@ -54,6 +56,8 @@ export declare function getTotalProgress(): {
 export declare function createTask(input: CreateTransferTaskInput): TransferTask;
 /** Alias emphasizing that this task is intended for a transfer pipeline. */
 export declare const createTransferTask: typeof createTask;
+/** Return whether an equivalent upload was created within the debounce window. */
+export declare function hasRecentUpload(dedupeKey: string, now?: number): boolean;
 export declare function updateTask(id: string, patch: TransferTaskPatch): TransferTask | undefined;
 export declare function clearCompleted(allTerminal?: boolean): void;
 export declare function bindController(id: string, controller: TransferController): boolean;
