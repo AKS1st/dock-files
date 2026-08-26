@@ -119,7 +119,18 @@ export function TransferView({ ctx }: ViewProps): ReactNode {
           const progress = taskProgress(task)
           const canPause = task.status === 'running' || task.status === 'queued'
           const canResume = task.status === 'paused'
-          return createElement('article', { className: 'df-transfer-row', key: task.id },
+          const isActive = !TERMINAL.has(task.status)
+           const progressContent = isActive
+             ? createElement('div', { className: 'df-transfer-progress' },
+               createElement('div', { className: 'df-transfer-progress-track' },
+                 createElement('div', {
+                   className: `df-transfer-progress-fill df-transfer-progress-${task.status}`,
+                   style: { width: `${progress}%` },
+                 })),
+               createElement('span', null, `${progress}% · ${formatBytes(task.transferredBytes)} / ${formatBytes(task.totalBytes)} · ${formatSpeed(task.speedBytesPerSecond)}`),
+             )
+             : createElement('span', { className: `df-transfer-status-badge df-transfer-status-${task.status}` }, statusLabel(task.status, t))
+           return createElement('article', { className: `df-transfer-row df-transfer-row-${task.status}`, key: task.id },
             createElement('div', { className: 'df-transfer-main' },
               createElement(ScrollingText, { className: 'df-transfer-name', title: task.name, value: task.name }),
               createElement('div', { className: 'df-transfer-kind' }, `${t(task.kind === 'upload' ? 'upload' : 'download')} · ${statusLabel(task.status, t)}`),
@@ -131,10 +142,12 @@ export function TransferView({ ctx }: ViewProps): ReactNode {
             ),
             createElement('div', { className: 'df-transfer-progress' },
               createElement('div', { className: 'df-transfer-progress-track' },
-                createElement('div', { className: 'df-transfer-progress-fill', style: { width: `${progress}%` } })),
+                createElement('div', { className: `df-transfer-progress-fill df-transfer-progress-${task.status}`, style: { width: `${progress}%` } })),
+               createElement('span', { className: `df-transfer-status-badge df-transfer-status-${task.status}` }, statusLabel(task.status, t)),
               createElement('span', null, `${progress}% · ${formatBytes(task.transferredBytes)} / ${formatBytes(task.totalBytes)} · ${formatSpeed(task.speedBytesPerSecond)}`),
             ),
-            createElement('div', { className: 'df-transfer-actions' },
+            createElement('span', { className: `df-transfer-status-badge df-transfer-status-${task.status}` }, statusLabel(task.status, t)),
+             createElement('div', { className: 'df-transfer-actions' },
               canPause ? actionButton(t('pause'), () => { void pauseTask(task.id) }) : null,
               canResume ? actionButton(t('resume'), () => { void resumeTask(task.id) }) : null,
               !TERMINAL.has(task.status) ? actionButton(t('cancel'), () => { void cancelTask(task.id) }) : null,
