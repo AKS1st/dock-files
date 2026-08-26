@@ -6,7 +6,7 @@
  * do. Type-only imports only; all runtime collaboration goes through
  * ctx.workbench / ctx.files method calls.
  */
-import { createElement, type ReactNode } from 'react'
+import { createElement, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type {} from './contract.ts'
 import type { IconSpec, ViewProps, WorkbenchContext, WorkbenchService } from './contract.ts'
 import { ExplorerView } from './ExplorerView'
@@ -15,6 +15,7 @@ import { collapseAllIcon, refreshIcon, uploadIcon } from './icons'
 
 export { openTransferView } from './TransferView'
 import { mountStyles } from './styles'
+import { getSnapshot as getTransferSnapshot, subscribe as subscribeTransfers, type TransferStatus } from './transferStore'
 
 /** Requires the workbench base to be mounted. */
 export const inject = ['workbench']
@@ -228,8 +229,33 @@ function dispatchHeaderAction(name: 'upload' | 'refresh' | 'collapse' | 'transfe
   document.dispatchEvent(new Event(`dock-files:${name}`))
 }
 
+const TERMINAL_TRANSFER_STATUSES: ReadonlySet<TransferStatus> = new Set(['completed', 'failed', 'cancelled', 'skipped'])
+
+function DownloadIndicator({ count }: { count: number }): ReactNode {
+  const [rotation, setRotation] = useState(0)
+  useEffect(() => {
+    if (count === 0) return
+    const timer = window.setInterval(() => {
+      setRotation((value) => (value + 12) % 360)
+    }, 50)
+    return () => window.clearInterval(timer)
+  }, [count])
+  if (count === 0) return transferIcon(14)
+  return createElement('span', { className: 'df-download-indicator', 'aria-label': `${count} 个下载任务` },
+    createElement('span', {
+      className: 'df-download-spinner',
+      'aria-hidden': true,
+      style: { transform: `rotate(${rotation}deg)` },
+    }),
+    createElement('span', { className: 'df-download-count' }, count > 9 ? '9+' : String(count)),
+  )
+}
+
 /** Actions rendered in the dock shell's fixed Files title row. */
 function FilesHeaderActions(_props: ViewProps): ReactNode {
+  const transferSnapshot = useSyncExternalStore(subscribeTransfers, getTransferSnapshot)
+  const activeTransferCount = transferSnapshot.tasks.filter((task) =>
+    !TERMINAL_TRANSFER_STATUSES.has(task.status)).length
   const button = (key: 'upload' | 'refresh' | 'collapse' | 'transfers', title: string, icon: ReactNode): ReactNode =>
     createElement('button', {
       key,
@@ -242,7 +268,7 @@ function FilesHeaderActions(_props: ViewProps): ReactNode {
       button('upload', '上传', uploadIcon(14)),
       button('refresh', '刷新', refreshIcon(14)),
       button('collapse', '折叠全部', collapseAllIcon(14)),
-      button('transfers', '打开传输中心', transferIcon(14)),
+      button('transfers', activeTransferCount > 0 ? `传输任务 ${activeTransferCount > 9 ? '9+' : activeTransferCount}` : '打开传输中心', createElement(DownloadIndicator, { count: activeTransferCount })),
     ),
   )
 }

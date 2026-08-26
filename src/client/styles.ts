@@ -84,6 +84,36 @@ const CSS = `
   color: var(--dsw-alias-label-primary, #1f2328);
 }
 .df-icon-btn:disabled { opacity: 0.45; cursor: default; }
+.df-download-indicator {
+  position: relative;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.df-download-spinner {
+  display: block;
+  width: 17px;
+  height: 17px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  will-change: transform;
+}
+.df-download-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
 /* ── Tree ── */
 .df-tree {
   flex: 1;
