@@ -37,7 +37,7 @@ import {
 import { translate } from './i18n'
 import { useLocale } from './hooks'
 import {
-  chevronUpIcon,
+  collapseAllIcon,
   copyIcon,
   cutIcon,
   editIcon,
@@ -1097,12 +1097,8 @@ export function ExplorerView(props: ViewProps): ReactNode {
         className: 'df-icon-btn',
         title: t('collapseAll'),
         onClick: collapseAll,
-      },
-        createElement('span', { className: 'df-icon-stack' },
-          chevronUpIcon(10),
-          chevronUpIcon(10),
-        ),
-      ),
+      }, collapseAllIcon(14)),
+
       createElement('button', {
         className: 'df-icon-btn',
         title: t('openTransferCenter'),

@@ -155,13 +155,15 @@ const WARNING: Glyph = {
   ],
 }
 
-/** ic_ds_chevron_up_outline_14 — stacked twice for the "collapse all" glyph. */
-const CHEVRON_UP: Glyph = {
-  viewBox: '0 0 14 14',
+/** Compact opposing chevrons — a single, balanced "collapse all" glyph. */
+const COLLAPSE_ALL: Glyph = {
+  viewBox: '0 0 16 14',
   size: 14,
-  layers: [{
-    d: 'M2.15137 8.5L2.57617 8.07617L5.30273 5.34863C5.55843 5.09294 5.78438 4.86618 5.98828 4.70215C6.20088 4.53117 6.44405 4.38244 6.75 4.33398C6.91565 4.30778 7.08435 4.30778 7.25 4.33398C7.55595 4.38244 7.79912 4.53117 8.01172 4.70215C8.21561 4.86618 8.44157 5.09294 8.69727 5.34863L11.4238 8.07617L11.8486 8.5L11 9.34863L10.5762 8.92383L7.84863 6.19727C7.57405 5.92269 7.40124 5.75152 7.25977 5.6377C7.12709 5.53096 7.07728 5.52187 7.0625 5.51953C7.02105 5.51297 6.97895 5.51297 6.9375 5.51953C6.92272 5.52187 6.87291 5.53096 6.74023 5.6377C6.59876 5.75152 6.42595 5.92268 6.15137 6.19727L3.42383 8.92383L3 9.34863L2.15137 8.5Z',
-  }],
+  ratio: 16 / 14,
+  layers: [
+    { d: 'M1.5 3.5L5.5 7L1.5 10.5L2.45 11.55L7.65 7L2.45 2.45L1.5 3.5Z' },
+    { d: 'M14.5 3.5L10.5 7L14.5 10.5L13.55 11.55L8.35 7L13.55 2.45L14.5 3.5Z' },
+  ],
 }
 
 /** ic_ds_plus_outline_16 — new file. */
@@ -394,6 +396,6 @@ export function warningIcon(size = 14): ReactNode {
   return svgIcon(WARNING, { size })
 }
 
-export function chevronUpIcon(size = 10): ReactNode {
-  return svgIcon(CHEVRON_UP, { size })
+export function collapseAllIcon(size = 14): ReactNode {
+  return svgIcon(COLLAPSE_ALL, { size })
 }

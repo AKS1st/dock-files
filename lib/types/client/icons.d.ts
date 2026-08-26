@@ -31,4 +31,4 @@ export declare function imageIcon(size?: number): ReactNode;
 /** Open loading ring; consumers spin it with the .df-spin class. */
 export declare function loadingIcon(size?: number, className?: string): ReactNode;
 export declare function warningIcon(size?: number): ReactNode;
-export declare function chevronUpIcon(size?: number): ReactNode;
+export declare function collapseAllIcon(size?: number): ReactNode;

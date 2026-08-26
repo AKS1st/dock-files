@@ -67,14 +67,6 @@ const CSS = `
   color: var(--dsw-alias-label-primary, #1f2328);
 }
 .df-icon-btn:disabled { opacity: 0.45; cursor: default; }
-.df-icon-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 0;
-  gap: 1px;
-}
-
 /* ── Tree ── */
 .df-tree {
   flex: 1;
