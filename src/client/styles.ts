@@ -24,14 +24,21 @@ const CSS = `
 /* ── Fixed Files title-row actions and progress ── */
 .df-shell-actions {
   display: flex;
-  align-items: center;
-  gap: 2px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-width: 96px;
   margin-left: auto;
 }
+.df-shell-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
 .df-shell-progress {
-  width: 28px;
+  width: 100%;
   height: 1px;
-  margin-left: 3px;
   overflow: hidden;
 }
 .df-shell-progress-fill {

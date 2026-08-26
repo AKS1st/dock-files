@@ -243,10 +243,12 @@ function FilesHeaderActions(_props: ViewProps): ReactNode {
       onClick: () => dispatchHeaderAction(key),
     }, icon)
   return createElement('div', { className: 'df-shell-actions' },
-    button('upload', '上传', uploadIcon(14)),
-    button('refresh', '刷新', refreshIcon(14)),
-    button('collapse', '折叠全部', collapseAllIcon(14)),
-    button('transfers', '打开传输中心', transferIcon(14)),
+    createElement('div', { className: 'df-shell-action-row' },
+      button('upload', '上传', uploadIcon(14)),
+      button('refresh', '刷新', refreshIcon(14)),
+      button('collapse', '折叠全部', collapseAllIcon(14)),
+      button('transfers', '打开传输中心', transferIcon(14)),
+    ),
     createElement('div', {
       className: 'df-shell-progress',
       title: transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
