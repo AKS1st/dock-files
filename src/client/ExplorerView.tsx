@@ -25,7 +25,7 @@ import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRe
 import { createPortal } from 'react-dom'
 import type { ViewProps, WorkbenchService } from './contract.ts'
 import type { FilesService } from './index'
-import { openTransferView, transferIcon } from './TransferView'
+import { openTransferView } from './TransferView'
 import {
   createTransferTask,
   getSnapshot as getTransferSnapshot,
@@ -37,7 +37,6 @@ import {
 import { translate } from './i18n'
 import { useLocale } from './hooks'
 import {
-  collapseAllIcon,
   copyIcon,
   cutIcon,
   editIcon,
@@ -52,8 +51,8 @@ import {
   refreshIcon,
   trashIcon,
   treeArrow,
-  uploadIcon,
   treeCorner,
+  uploadIcon,
   warningIcon,
 } from './icons'
 
@@ -717,6 +716,33 @@ export function ExplorerView(props: ViewProps): ReactNode {
     }
   }
 
+  // The dock shell renders the Files title row. Its actions dispatch here so
+  // upload/refresh/collapse keep the explorer's state and native picker alive.
+  useEffect(() => {
+    const onHeaderAction = (event: Event): void => {
+      if (event.type === 'dock-files:upload') {
+        if (root !== null) chooseUpload(root)
+      } else if (event.type === 'dock-files:refresh') {
+        setMenu(null)
+        void load()
+      } else if (event.type === 'dock-files:collapse') {
+        collapseAll()
+      } else if (event.type === 'dock-files:transfers') {
+        openTransferView(ctx.get<WorkbenchService>('workbench'))
+      }
+    }
+    document.addEventListener('dock-files:upload', onHeaderAction)
+    document.addEventListener('dock-files:refresh', onHeaderAction)
+    document.addEventListener('dock-files:collapse', onHeaderAction)
+    document.addEventListener('dock-files:transfers', onHeaderAction)
+    return () => {
+      document.removeEventListener('dock-files:upload', onHeaderAction)
+      document.removeEventListener('dock-files:refresh', onHeaderAction)
+      document.removeEventListener('dock-files:collapse', onHeaderAction)
+      document.removeEventListener('dock-files:transfers', onHeaderAction)
+    }
+  }, [root, load])
+
   // Escape dismisses the context menu (backdrop also closes it on click).
   useEffect(() => {
     if (menu === null) return
@@ -1114,60 +1140,13 @@ export function ExplorerView(props: ViewProps): ReactNode {
       if (document.activeElement !== viewRef.current) viewRef.current?.focus()
     },
   },
-    createElement('div', { className: 'df-header' },
-      createElement('div', {
-        className: 'df-pathbar',
-        title: root ?? undefined,
-        onClick: () => { setMenu(null); void load() },
-      },
-        folderIcon(true, 13),
-        createElement('span', null, root ?? '…'),
-      ),
-      createElement('div', { className: 'df-toolbar' },
-        createElement('input', {
-          ref: uploadInputRef,
-          type: 'file',
-          multiple: true,
-          hidden: true,
-          onChange: onUploadInputChange,
-        }),
-        createElement('button', {
-          className: 'df-icon-btn',
-          title: t('upload'),
-          disabled: root === null,
-          onClick: () => { if (root !== null) chooseUpload(root) },
-        }, uploadIcon(14)),
-        createElement('button', {
-          className: 'df-icon-btn',
-          title: t('refresh'),
-          disabled: loading,
-          onClick: () => { setMenu(null); void load() },
-        }, refreshIcon(14, loading ? 'df-spin' : undefined)),
-        createElement('button', {
-          className: 'df-icon-btn',
-          title: t('collapseAll'),
-          onClick: collapseAll,
-        }, collapseAllIcon(14)),
-        createElement('button', {
-          className: 'df-icon-btn',
-          title: t('openTransferCenter'),
-          onClick: () => openTransferView(ctx.get<WorkbenchService>('workbench')),
-        }, transferIcon(14)),
-      ),
-      createElement('div', {
-        className: 'df-progress',
-        title: transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
-          ? t('transferSummary', { active: transferSnapshot.activeCount, progress: Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100) })
-          : undefined,
-      },
-        createElement('div', {
-          className: 'df-progress-fill',
-          style: { width: transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
-            ? `${Math.min(100, Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100))}%`
-            : '0%' },
-        }),
-      ),
-    ),
+    createElement('input', {
+      ref: uploadInputRef,
+      type: 'file',
+      multiple: true,
+      hidden: true,
+      onChange: onUploadInputChange,
+    }),
     createElement('div', {
       className: `df-tree${dragOver === root && root !== null ? ' df-drop-target' : ''}`,
       // Right-click on the empty area: root-level actions (new / paste).

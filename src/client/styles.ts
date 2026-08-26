@@ -21,34 +21,23 @@ const CSS = `
   overflow: hidden;
 }
 
-/* ── Fixed header: path bar + actions + transfer progress ── */
-.df-header {
-  flex: none;
-  min-width: 0;
-  border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0);
-}
-.df-pathbar {
+/* ── Fixed Files title-row actions and progress ── */
+.df-shell-actions {
   display: flex;
   align-items: center;
-  min-width: 0;
-  gap: 6px;
-  padding: 3px 6px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.df-pathbar svg { flex: none; color: var(--dsw-alias-label-secondary, #656d76); }
-.df-pathbar > span { overflow: hidden; text-overflow: ellipsis; }
-.df-pathbar:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.10)); }
-.df-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
   gap: 2px;
-  padding: 2px 0;
+  margin-left: auto;
+}
+.df-shell-progress {
+  width: 28px;
+  height: 1px;
+  margin-left: 3px;
+  overflow: hidden;
+}
+.df-shell-progress-fill {
+  height: 1px;
+  background: #0969da;
+  transition: width 0.12s linear;
 }
 .df-icon-btn {
   display: inline-flex;
