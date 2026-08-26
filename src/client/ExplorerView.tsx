@@ -445,6 +445,15 @@ export function ExplorerView(props: ViewProps): ReactNode {
     input.value = ''
   }
 
+  const openRootContextMenu = (event: MouseEvent, directoryTarget = false): void => {
+    if (root === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    setPasteDir(directoryTarget ? root : null)
+    setMenu({ x: event.clientX, y: event.clientY, target: directoryTarget ? { kind: 'dir', path: root } : { kind: 'empty' } })
+    probeClipboardContents()
+  }
+
   /** Paste an image from the system clipboard into `dest` (saved as a file). */
   const pasteImageInto = (dest: string): void => {
     setMenu(null)
@@ -1038,13 +1047,13 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('new-dir', newFolderIcon(13), t('newFolder'), () => startCreate('dir', path)),
         separator('s1'),
         menuItem('refresh', refreshIcon(13), t('refresh'), () => refreshDir(path)),
-        menuItem('rename', editIcon(13), t('rename'), () => beginRename(path)),
+        ...(path === root ? [] : [menuItem('rename', editIcon(13), t('rename'), () => beginRename(path))]),
         menuItem('copy', copyIcon(13), t('copy'), () => setClip('copy', path)),
         menuItem('cut', cutIcon(13), t('cut'), () => setClip('cut', path)),
         pasteOrUploadItem(path),
         ...pasteImageItem(path),
         separator('s2'),
-        menuItem('delete', trashIcon(13), t('delete'), () => removePath(path)),
+        ...(path === root ? [] : [menuItem('delete', trashIcon(13), t('delete'), () => removePath(path))]),
         menuItem('copy-path', copyIcon(13), t('copyPath'), () => copyPath(path)),
       ]
     }
@@ -1144,6 +1153,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       className: 'df-pathbar',
       title: root ?? undefined,
       onClick: () => { setMenu(null); void load() },
+      onContextMenu: (event: MouseEvent) => openRootContextMenu(event, true),
     },
       folderIcon(true, 13),
       createElement('span', null, root ?? '…'),
@@ -1220,6 +1230,26 @@ export function ExplorerView(props: ViewProps): ReactNode {
           },
         }, t('emptyDir'))]
         : rows),
+      createElement('div', {
+        className: 'df-root-spacer',
+        role: 'presentation',
+        'aria-label': t('emptyDir'),
+        onContextMenu: (event: MouseEvent) => openRootContextMenu(event),
+        onDragEnter: (event: DragEvent) => {
+          event.preventDefault()
+          if (root !== null) setDragOver(root)
+        },
+        onDragOver: (event: DragEvent) => {
+          event.preventDefault()
+          if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'copy'
+        },
+        onDragLeave: () => setDragOver((previous) => (previous === root ? null : previous)),
+        onDrop: (event: DragEvent) => {
+          event.preventDefault()
+          setDragOver(null)
+          if (root !== null) handleDrop(event, root)
+        },
+      }),
     ),
     // Portal to <body>: a transform on an ancestor (dock-mode floating panel)
     // would otherwise turn the menu's fixed coordinates into panel-relative
