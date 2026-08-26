@@ -21,21 +21,16 @@ const CSS = `
   overflow: hidden;
 }
 
-/* ── Toolbar: root directory + refresh + collapse-all ── */
-.df-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 0 6px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0);
-  flex-shrink: 0;
-}
-.df-toolbar-name {
-  flex: 1;
+/* ── Fixed header: path bar + actions + transfer progress ── */
+.df-header {
+  flex: none;
   min-width: 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d8dbe0);
+}
+.df-pathbar {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 6px;
   padding: 3px 6px;
   border-radius: 6px;
@@ -45,9 +40,16 @@ const CSS = `
   overflow: hidden;
   white-space: nowrap;
 }
-.df-toolbar-name svg { flex: none; color: var(--dsw-alias-label-secondary, #656d76); }
-.df-toolbar-name > span { overflow: hidden; text-overflow: ellipsis; }
-.df-toolbar-name:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.10)); }
+.df-pathbar svg { flex: none; color: var(--dsw-alias-label-secondary, #656d76); }
+.df-pathbar > span { overflow: hidden; text-overflow: ellipsis; }
+.df-pathbar:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.10)); }
+.df-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 2px 0;
+}
 .df-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -289,9 +291,8 @@ const CSS = `
 .df-view:focus,
 .df-view:focus-visible { outline: none; }
 
-/* ── Upload progress: a 1px bar pinned to the panel's bottom ── */
+/* ── Upload progress: fixed below the toolbar; empty stays transparent ── */
 .df-progress {
-  flex: none;
   height: 1px;
   overflow: hidden;
 }

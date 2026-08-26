@@ -1114,45 +1114,59 @@ export function ExplorerView(props: ViewProps): ReactNode {
       if (document.activeElement !== viewRef.current) viewRef.current?.focus()
     },
   },
-    createElement('div', { className: 'df-toolbar' },
+    createElement('div', { className: 'df-header' },
       createElement('div', {
-        className: 'df-toolbar-name',
+        className: 'df-pathbar',
         title: root ?? undefined,
         onClick: () => { setMenu(null); void load() },
       },
         folderIcon(true, 13),
         createElement('span', null, root ?? '…'),
       ),
-      createElement('input', {
-        ref: uploadInputRef,
-        type: 'file',
-        multiple: true,
-        hidden: true,
-        onChange: onUploadInputChange,
-      }),
-      createElement('button', {
-        className: 'df-icon-btn',
-        title: t('upload'),
-        disabled: root === null,
-        onClick: () => { if (root !== null) chooseUpload(root) },
-      }, uploadIcon(14)),
-      createElement('button', {
-        className: 'df-icon-btn',
-        title: t('refresh'),
-        disabled: loading,
-        onClick: () => { setMenu(null); void load() },
-      }, refreshIcon(14, loading ? 'df-spin' : undefined)),
-      createElement('button', {
-        className: 'df-icon-btn',
-        title: t('collapseAll'),
-        onClick: collapseAll,
-      }, collapseAllIcon(14)),
-
-      createElement('button', {
-        className: 'df-icon-btn',
-        title: t('openTransferCenter'),
-        onClick: () => openTransferView(ctx.get<WorkbenchService>('workbench')),
-      }, transferIcon(14)),
+      createElement('div', { className: 'df-toolbar' },
+        createElement('input', {
+          ref: uploadInputRef,
+          type: 'file',
+          multiple: true,
+          hidden: true,
+          onChange: onUploadInputChange,
+        }),
+        createElement('button', {
+          className: 'df-icon-btn',
+          title: t('upload'),
+          disabled: root === null,
+          onClick: () => { if (root !== null) chooseUpload(root) },
+        }, uploadIcon(14)),
+        createElement('button', {
+          className: 'df-icon-btn',
+          title: t('refresh'),
+          disabled: loading,
+          onClick: () => { setMenu(null); void load() },
+        }, refreshIcon(14, loading ? 'df-spin' : undefined)),
+        createElement('button', {
+          className: 'df-icon-btn',
+          title: t('collapseAll'),
+          onClick: collapseAll,
+        }, collapseAllIcon(14)),
+        createElement('button', {
+          className: 'df-icon-btn',
+          title: t('openTransferCenter'),
+          onClick: () => openTransferView(ctx.get<WorkbenchService>('workbench')),
+        }, transferIcon(14)),
+      ),
+      createElement('div', {
+        className: 'df-progress',
+        title: transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
+          ? t('transferSummary', { active: transferSnapshot.activeCount, progress: Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100) })
+          : undefined,
+      },
+        createElement('div', {
+          className: 'df-progress-fill',
+          style: { width: transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
+            ? `${Math.min(100, Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100))}%`
+            : '0%' },
+        }),
+      ),
     ),
     createElement('div', {
       className: `df-tree${dragOver === root && root !== null ? ' df-drop-target' : ''}`,
@@ -1220,14 +1234,6 @@ export function ExplorerView(props: ViewProps): ReactNode {
         }, t('emptyDir'))]
         : rows),
     ),
-    // Global transfer progress shared by every Explorer instance.
-    ...(transferSnapshot.activeCount > 0 && transferSnapshot.totalBytes > 0
-      ? [createElement('div', { key: 'progress', className: 'df-progress', title: t('transferSummary', { active: transferSnapshot.activeCount, progress: Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100) }) },
-        createElement('div', {
-          className: 'df-progress-fill',
-          style: { width: `${Math.min(100, Math.round(transferSnapshot.totalTransferred / transferSnapshot.totalBytes * 100))}%` },
-        }))]
-      : []),
     // Portal to <body>: a transform on an ancestor (dock-mode floating panel)
     // would otherwise turn the menu's fixed coordinates into panel-relative
     // ones and render it off-screen.
