@@ -168,63 +168,6 @@ function createFilesService(workbench: WorkbenchService): FilesService {
   return { open, canOpen, registerFileViewer, registerFileIcon, iconFor, fallbackIcon, subscribe, getIconVersion }
 }
 
-/** POST /wb-files/probe: stat an absolute path (existence + directory flag). */
-async function probePath(path: string): Promise<{ exists: boolean; isDir: boolean }> {
-  const response = await fetch('/wb-files/probe', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path }),
-  })
-  const json = (await response.json()) as {
-    ok: boolean
-    value?: { exists: boolean; isDir: boolean }
-    error?: { message: string }
-  }
-  if (json.ok !== true || json.value === undefined) {
-    throw new Error(json.error?.message ?? 'probe failed')
-  }
-  return json.value
-}
-
-/** Minimal face of the harness workspace service (its only `openPath` caller
- *  is the conversation view's file-opener inject). */
-interface WorkspacesFace {
-  openPath(path: string): Promise<void>
-}
-
-/**
- * Route conversation file paths into the workbench file domain. The chat
- * view opens clicked paths (prose mentions, tool rows, produced files)
- * through `workspaces.openPath` → host `openPath` → the OS default
- * application (xdg-open / open / Invoke-Item), which fails on hosts without
- * a desktop association ("path open failed: Command failed: xdg-open …").
- * When the target exists as a regular file and a registered viewer can open
- * it, dispatch through `workbench.openPath` (the file-domain handler) so the
- * matching tool opens it; folders, missing paths and unviewable types keep
- * the native opener. Returns the disposer that restores the original method.
- */
-function bridgeChatOpens(
-  ctx: WorkbenchContext,
-  workbench: WorkbenchService,
-  files: FilesService,
-  workspaces: WorkspacesFace,
-): () => void {
-  const nativeOpen = workspaces.openPath.bind(workspaces)
-  workspaces.openPath = async (path: string): Promise<void> => {
-    try {
-      const probe = await probePath(path)
-      if (probe.exists && !probe.isDir && files.canOpen(path)) {
-        workbench.openPath(path)
-        return
-      }
-    } catch {
-      // Probe failure (bad path, network): keep the native behavior.
-    }
-    await nativeOpen(path)
-  }
-  return () => { workspaces.openPath = nativeOpen }
-}
-
 function dispatchHeaderAction(name: 'upload' | 'refresh' | 'collapse' | 'transfers'): void {
   document.dispatchEvent(new Event(`dock-files:${name}`))
 }
@@ -292,35 +235,6 @@ export function apply(ctx: WorkbenchContext): void {
   ctx.effect(() => workbench.registerOpenPathHandler((path, options) => {
     files.open(path, { title: options?.title, mode: 'floating' })
   }), 'dock-files: open-path handler')
-
-  // Chat open-path bridge: conversation file paths open through the harness's
-  // native opener, which errors on hosts without a desktop association. Route
-  // viewable files into the workbench viewers instead (folders, missing paths
-  // and unviewable types keep the native opener). The harness runtime may
-  // mount after the dock patch rows, so wait for the service when it is not
-  // present yet instead of silently dropping the bridge.
-  ctx.effect(() => {
-    let restore: (() => void) | undefined
-    let off: (() => void) | undefined
-    const install = (ws: WorkspacesFace): void => {
-      if (restore !== undefined) return
-      off?.()
-      restore = bridgeChatOpens(ctx, workbench, files, ws)
-    }
-    const existing = ctx.get<WorkspacesFace>('workspaces')
-    if (existing !== undefined) {
-      install(existing)
-    } else {
-      off = ctx.on('internal/service', (...args: unknown[]) => {
-        if (args[0] !== 'workspaces') return
-        install(args[1] as WorkspacesFace)
-      })
-    }
-    return () => {
-      off?.()
-      restore?.()
-    }
-  }, 'dock-files: chat open-path bridge')
 
   // Activity item: the left strip entry that reveals the files pane.
   ctx.effect(() => workbench.registerActivityBarItem({
