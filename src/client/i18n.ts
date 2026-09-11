@@ -71,6 +71,11 @@ export const DICTS: Record<LocaleId, Dict> = {
      'transferStatus.failed': '失败',
      'transferStatus.cancelled': '已取消',
      'transferStatus.skipped': '已跳过',
+     // ── Settings ──
+     openSourceTitle: '会话文件链接打开方式',
+     openSourceDescription: '选择会话中的文件链接使用 dock 查看器还是 Harness 侧边栏打开。',
+     openSourceDock: 'dock 查看器',
+     openSourceHarness: 'Harness 侧边栏',
   },
   en: {
     // ── Toolbar / states ──
@@ -123,6 +128,11 @@ export const DICTS: Record<LocaleId, Dict> = {
      'transferStatus.failed': 'Failed',
      'transferStatus.cancelled': 'Cancelled',
      'transferStatus.skipped': 'Skipped',
+     // ── Settings ──
+     openSourceTitle: 'Conversation file link target',
+     openSourceDescription: 'Choose whether conversation file links open in the dock viewer or the Harness side bar.',
+     openSourceDock: 'Dock viewer',
+     openSourceHarness: 'Harness side bar',
   },
 }
 

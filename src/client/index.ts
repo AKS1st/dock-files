@@ -9,6 +9,7 @@
 import { createElement, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type {} from './contract.ts'
 import type { IconSpec, ViewProps, WorkbenchContext, WorkbenchService } from './contract.ts'
+import { OPEN_SOURCE_SETTING, type OpenSourceMode } from './setting.ts'
 import { ExplorerView } from './ExplorerView'
 import { TransferStatusBar, TransferView, transferIcon } from './TransferView'
 import { collapseAllIcon, refreshIcon, uploadIcon } from './icons'
@@ -16,6 +17,7 @@ import { collapseAllIcon, refreshIcon, uploadIcon } from './icons'
 export { openTransferView } from './TransferView'
 import { mountStyles } from './styles'
 import { getSnapshot as getTransferSnapshot, subscribe as subscribeTransfers, type TransferStatus } from './transferStore'
+import { bridgeChatOpens, createOpenPathBridgeController, type SidebarRightFace } from './openBridge.ts'
 
 /** Requires the workbench base to be mounted. */
 export const inject = ['workbench']
@@ -222,6 +224,15 @@ export function apply(ctx: WorkbenchContext): void {
   // Optional-peer guard: skip silently when the base is absent.
   if (workbench === undefined) return
 
+  ctx.effect(() => workbench.registerPlugin({
+    id: 'dock-files',
+    title: 'Files',
+    description: 'File explorer for the DSH dock: browse the active conversation\'s working directory and open files in the registered file viewers.',
+    icon: FOLDER_ICON,
+    hasEntry: true,
+    order: 10,
+  }), 'dock-files: plugin metadata')
+
   // Shell styles (context-menu hover/active feedback).
   ctx.effect(() => mountStyles(), 'dock-files: styles')
 
@@ -230,15 +241,42 @@ export function apply(ctx: WorkbenchContext): void {
   const files = createFilesService(workbench)
   ctx.provide('files', files)
 
+  // Settings are owned by dock-base; this plugin only contributes the definition.
+  ctx.effect(() => workbench.registerSetting(OPEN_SOURCE_SETTING), 'dock-files: open-source setting')
+
   // System entry: external paths (chat links, other plugins) route in.
   // The editor only supports standalone-window mode, so always open floating.
   ctx.effect(() => workbench.registerOpenPathHandler((path, options) => {
     files.open(path, { title: options?.title, mode: 'floating' })
   }), 'dock-files: open-path handler')
 
+  // Dock mode classifies resource links for Workbench; harness mode leaves
+  // the canonical Sidebar resource carrier untouched.
+  ctx.effect(() => {
+    const sidebarRight = ctx.get<SidebarRightFace>('sidebarRight')
+    const controller = createOpenPathBridgeController(
+      () => workbench.getSetting<OpenSourceMode>('dock-files.open-source') ?? 'dock',
+      (mounted, mode) => bridgeChatOpens(
+        mounted,
+        workbench,
+        files,
+        mode,
+        ctx.get<{ list: { getSnapshot(): { current?: string; byId: Record<string, { cwd?: string }> } } }>('sessions'),
+      ),
+    )
+    if (sidebarRight !== undefined) controller.mount(sidebarRight)
+    const offService = ctx.on('internal/service', (...args: unknown[]) => {
+      if (args[0] === 'sidebarRight' && args[1] !== undefined) controller.mount(args[1] as SidebarRightFace)
+      else if (args[0] === 'sessions') controller.sync()
+    })
+    const offSetting = workbench.onDidChangeSetting(() => controller.sync())
+    return () => { offSetting(); offService(); controller.dispose() }
+  }, 'dock-files: chat open-resource bridge')
+
   // Activity item: the left strip entry that reveals the files pane.
   ctx.effect(() => workbench.registerActivityBarItem({
     id: 'files',
+    pluginId: 'dock-files',
     title: 'Files',
     icon: FOLDER_ICON,
     order: 10,

@@ -20,6 +20,23 @@
  * client-bundle purity convention.
  */
 import type { ComponentType, ReactNode } from 'react';
+/** Structural copy of dock-base's settings contract; runtime calls stay on workbench. */
+export interface SettingDefinition<T = unknown> {
+    /** Owning plugin id, so dock-base groups this setting under the plugin page. */
+    pluginId?: string;
+    id: string;
+    /** Plain text, or a locale-aware factory dock-base evaluates per render. */
+    title: string | ((locale: 'zh' | 'en') => string);
+    description?: string | ((locale: 'zh' | 'en') => string);
+    order?: number;
+    defaultValue: T;
+    component: ComponentType<{
+        value: T;
+        onChange(value: T): void;
+        locale?: 'zh' | 'en';
+    }>;
+    validate(value: unknown): value is T;
+}
 /** The cordis context face the workbench hands to view components
  *  (structural subset; feature plugins may extend it locally). */
 export interface WorkbenchContext {
@@ -100,6 +117,7 @@ export interface ViewDefinition {
 /** One activity-bar item (the left vertical strip, VSCode style). */
 export interface ActivityBarItemDefinition {
     id: string;
+    pluginId?: string;
     title: string;
     icon: IconRef;
     /** Sort order (ascending); default 100. */
@@ -195,7 +213,16 @@ export interface OpenPathOptions {
  * consuming plugin wraps it in `ctx.effect(...)` so Cordis fiber disposal
  * (HMR / disable) reverts the registration.
  */
+export interface PluginDefinition {
+    id: string;
+    title: string;
+    description?: string;
+    icon?: IconRef;
+    hasEntry: boolean;
+    order?: number;
+}
 export interface WorkbenchService {
+    registerPlugin(def: PluginDefinition): () => void;
     registerActivityBarItem(def: ActivityBarItemDefinition): () => void;
     registerPanel(def: ViewDefinition & {
         region: 'sideBar';
@@ -275,6 +302,11 @@ export interface WorkbenchService {
     getCommands(): readonly CommandDefinition[];
     /** Subscribe to registry changes; returns the disposer. */
     subscribe(listener: () => void): () => void;
+    registerSetting<T>(definition: SettingDefinition<T>): () => void;
+    getSettings(): readonly SettingDefinition<unknown>[];
+    getSetting<T = unknown>(id: string): T | undefined;
+    setSetting<T = unknown>(id: string, value: T): void;
+    onDidChangeSetting(listener: () => void): () => void;
 }
 declare module 'cordis' {
     interface Context {
