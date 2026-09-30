@@ -14,9 +14,10 @@
  * workspace; writes never overwrite — colliding names get a numeric suffix.
  */
 import { createReadStream } from 'node:fs'
-import { cp, link, lstat, mkdir, opendir, open, realpath, rename as fsRename, rm, stat, truncate, unlink, writeFile } from 'node:fs/promises'
+import { cp, link, lstat, mkdir, opendir, open, readFile, realpath, rename as fsRename, rm, stat, truncate, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { zipSync } from 'fflate'
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 
 export const name = 'dock-files'
@@ -528,6 +529,75 @@ async function streamDownload(
   })
 }
 
+/** Maximum uncompressed input accepted by the in-memory ZIP builder. */
+const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+const MAX_ARCHIVE_ENTRIES = 100_000
+
+type ZipEntries = Record<string, Uint8Array>
+
+/** Collect a confined directory into a ZIP-compatible entry map. Symlinks are skipped. */
+async function collectDirectoryZipEntries(root: string): Promise<ZipEntries> {
+  const entries: ZipEntries = {}
+  const rootName = basename(root) || 'archive'
+  let totalBytes = 0
+  let entryCount = 0
+
+  const addEntry = (name: string, data: Uint8Array): void => {
+    entryCount += 1
+    totalBytes += data.byteLength
+    if (entryCount > MAX_ARCHIVE_ENTRIES || totalBytes > MAX_ARCHIVE_BYTES) {
+      throw new WbError('bad-request', 'directory is too large to package as ZIP', 413)
+    }
+    entries[name] = data
+  }
+
+  const visit = async (directory: string, archivePrefix: string): Promise<void> => {
+    const handle = await opendir(directory)
+    try {
+      for await (const dirent of handle) {
+        const source = join(directory, dirent.name)
+        const archiveName = `${archivePrefix}/${dirent.name}`
+        const info = await lstat(source)
+        if (info.isSymbolicLink()) continue
+        if (info.isDirectory()) {
+          addEntry(`${archiveName}/`, new Uint8Array())
+          await visit(source, archiveName)
+        } else if (info.isFile()) {
+          addEntry(archiveName, await readFile(source))
+        }
+      }
+    } finally {
+      await handle.close().catch(() => undefined)
+    }
+  }
+
+  addEntry(`${rootName}/`, new Uint8Array())
+  await visit(root, rootName)
+  return entries
+}
+
+/** Build and stream a ZIP archive for one confined directory. */
+async function streamDirectoryDownload(cwd: string, rawPath: string, res: ServerResponse): Promise<void> {
+  const resolved = await resolveWorkspacePath(cwd, rawPath)
+  const info = await lstat(rawPath).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new WbError('not-found', `directory does not exist: "${rawPath}"`, 404)
+    }
+    throw error
+  })
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new WbError('bad-request', 'download target is not a directory', 400)
+  }
+  const archive = zipSync(await collectDirectoryZipEntries(resolved), { level: 6 })
+  const name = `${basename(rawPath) || 'archive'}.zip`
+  res.writeHead(200, {
+    'content-type': 'application/zip',
+    'content-length': String(archive.byteLength),
+    'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+  })
+  res.end(Buffer.from(archive))
+}
+
 async function startUpload(
   cwd: string,
   sessionId: string,
@@ -711,7 +781,7 @@ export function apply(ctx: WbContext): void {
       const requestUrl = new URL(req.url ?? '/', 'http://dsh.internal')
       const requestPathname = requestUrl.pathname
       const method = requestPathname.startsWith('/wb-files/') ? requestPathname.slice('/wb-files/'.length) : undefined
-      const isDownload = req.method === 'GET' && method === 'download'
+      const isDownload = req.method === 'GET' && (method === 'download' || method === 'downloadZip')
       if (req.method !== 'POST' && !isDownload) {
         writeJson(res, 405, { ok: false, error: { code: 'bad-request', message: 'method not allowed' } })
         return
@@ -721,11 +791,12 @@ export function apply(ctx: WbContext): void {
         return
       }
       try {
-        if (method === 'download') {
+        if (method === 'download' || method === 'downloadZip') {
           const sessionId = queryStringOf(requestUrl, 'sessionId')
           const cwd = requireSessionCwd(ctx, sessionId)
           const path = queryStringOf(requestUrl, 'path')
-          await streamDownload(cwd, path, res)
+          if (method === 'downloadZip') await streamDirectoryDownload(cwd, path, res)
+          else await streamDownload(cwd, path, res)
           return
         }
         if (method === 'uploadChunk') {

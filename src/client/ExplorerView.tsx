@@ -290,6 +290,15 @@ export function ExplorerView(props: ViewProps): ReactNode {
     void fetchChildren(path, true)
   }
 
+  /** Refresh the root and every directory that is currently expanded. */
+  const refreshExpanded = useCallback((): void => {
+    setMenu(null)
+    const expandedPaths = Array.from(expanded)
+    void load().then(async () => {
+      await Promise.all(expandedPaths.map((path) => fetchChildren(path, true)))
+    })
+  }, [expanded, fetchChildren, load])
+
   const copyPath = (path: string): void => {
     setMenu(null)
     void navigator.clipboard?.writeText(path).catch(() => {})
@@ -576,8 +585,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
     runUpload(list.map((file) => ({ name: file.name !== '' ? file.name : t('fileFallbackName'), blob: file })), dest)
   }
 
-  /** Download a regular file through the streaming file route. */
-  const downloadFile = (path: string): void => {
+  /** Download a file or package a directory through the streaming file route. */
+  const downloadFile = (path: string, directory = false): void => {
+    const suggestedName = directory ? `${baseNameOf(path) || 'archive'}.zip` : baseNameOf(path)
     setMenu(null)
     const abort = new AbortController()
     let paused = false
@@ -599,17 +609,17 @@ export function ExplorerView(props: ViewProps): ReactNode {
       start: async (task) => {
         let writable: DownloadWritable | undefined
         try {
-          const downloadUrl = `/wb-files/download?sessionId=${encodeURIComponent(sessionId ?? '')}&path=${encodeURIComponent(path)}`
+          const downloadUrl = `/wb-files/${directory ? 'downloadZip' : 'download'}?sessionId=${encodeURIComponent(sessionId ?? '')}&path=${encodeURIComponent(path)}`
           const savePicker = (navigator as NavigatorWithSavePicker).showSaveFilePicker
           if (savePicker === undefined) {
             const anchor = document.createElement('a')
             anchor.href = downloadUrl
-            anchor.download = baseNameOf(path)
+            anchor.download = suggestedName
             anchor.click()
             updateTask(task.id, { status: 'completed' })
             return
           }
-          const handle = await savePicker({ suggestedName: baseNameOf(path) })
+          const handle = await savePicker({ suggestedName })
           writable = await handle.createWritable()
           const response = await fetch(downloadUrl, { signal: abort.signal })
           const contentType = response.headers.get('content-type') ?? ''
@@ -647,7 +657,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
           }
           if (cancelRequested) return
           const anchor = document.createElement('a')
-          anchor.download = baseNameOf(path)
+          anchor.download = suggestedName
           anchor.click()
           updateTask(task.id, { status: 'completed' })
         } catch (cause) {
@@ -665,7 +675,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         abort.abort()
       },
     }
-    const task = createTransferTask({ kind: 'download', name: baseNameOf(path), sourcePath: path, targetPath: t('browserDownload'), sessionId, totalBytes: 0, controller })
+    const task = createTransferTask({ kind: 'download', name: suggestedName, sourcePath: path, targetPath: t('browserDownload'), sessionId, totalBytes: 0, controller })
     void startTask(task.id).catch((cause) => reportError(cause))
   }
 
@@ -750,8 +760,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       if (event.type === 'dock-files:upload') {
         if (root !== null) chooseUpload(root)
       } else if (event.type === 'dock-files:refresh') {
-        setMenu(null)
-        void load()
+        refreshExpanded()
       } else if (event.type === 'dock-files:collapse') {
         collapseAll()
       } else if (event.type === 'dock-files:transfers') {
@@ -768,7 +777,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
       document.removeEventListener('dock-files:collapse', onHeaderAction)
       document.removeEventListener('dock-files:transfers', onHeaderAction)
     }
-  }, [root, load])
+  }, [root, refreshExpanded])
 
   // Escape dismisses the context menu (backdrop also closes it on click).
   useEffect(() => {
@@ -1054,6 +1063,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         separator('s1'),
         pasteOrUploadItem(root),
         ...pasteImageItem(root),
+        menuItem('download-zip', openIcon(13), t('downloadZip'), () => downloadFile(root, true)),
         separator('s2'),
         menuItem('refresh', refreshIcon(13), t('refresh'), () => void load()),
       ]
@@ -1065,6 +1075,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
         menuItem('new-dir', newFolderIcon(13), t('newFolder'), () => startCreate('dir', path)),
         separator('s1'),
         menuItem('refresh', refreshIcon(13), t('refresh'), () => refreshDir(path)),
+        menuItem('download-zip', openIcon(13), t('downloadZip'), () => downloadFile(path, true)),
         ...(path === root ? [] : [menuItem('rename', editIcon(13), t('rename'), () => beginRename(path))]),
         menuItem('copy', copyIcon(13), t('copy'), () => setClip('copy', path)),
         menuItem('cut', cutIcon(13), t('cut'), () => setClip('cut', path)),
