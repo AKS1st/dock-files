@@ -5,8 +5,9 @@
  * OS files paints a full-screen "drop files here" overlay and appends the
  * dropped files to the composer. While the pointer is over this panel those
  * listeners must not run — this panel owns the drop — so the view stops the
- * drag events in the capture phase, before they reach `document`, and
- * dismisses an overlay the Harness already painted.
+ * drag events in the capture phase, before they reach `document`, and eases an
+ * overlay the Harness already painted out of the way instead of snapping it
+ * off, so entering and leaving the panel keeps the Harness's own transition.
  *
  * The pure parts live here so they can be tested without rendering React.
  */
@@ -27,15 +28,29 @@ export declare function dropDestinationOf(target: EventTarget | null, root: stri
     highlight: string | null;
 };
 /**
- * Dismiss a Harness drop overlay that was painted before the pointer reached
- * this panel.
- *
- * The overlay is component state driven by the Harness's own drag counters, so
- * the only way to clear it from outside is to give those listeners the event
- * they reset on: a dragleave whose target is the document root and whose
- * pointer sits outside the viewport. A constructible `DataTransfer` carrying a
- * file is required for the Harness's own filter to recognise it as a file
- * drag; an engine without one keeps the overlay for this drag, and the next
- * dragenter outside the panel restores it anyway.
+ * Dispatch the one event the Harness's drop counters reset on: a document-level
+ * `dragleave` whose pointer sits outside the viewport. A constructible
+ * `DataTransfer` carrying a file is required for the Harness's own filter to
+ * recognise it as a file drag.
  */
 export declare function dismissHarnessDropOverlay(): void;
+/**
+ * Ease the Harness overlay out while the pointer is inside the panel.
+ *
+ * The overlay is React state owned by the Harness, so it cannot be faded by
+ * waiting for its own transition — dismissing it would unmount it at once.
+ * Instead it is kept mounted and faded with the same 0.16s `ease-out` curve the
+ * Harness uses on the way in; leaving the panel fades it back in place.
+ *
+ * The call is idempotent for the direction already running: a fast pass back
+ * and forth across the panel edge reverses the existing transition from its
+ * current opacity instead of restarting it, which is what flickered. When no
+ * overlay is on screen (the common case, because the panel stopped the Harness
+ * from ever arming) there is nothing to animate and armed counters are reset.
+ */
+export declare function fadeHarnessDropOverlayOut(): void;
+/**
+ * Fade a previously faded overlay back in, cancelling a pending style cleanup
+ * first so a late timer can never snap it to full opacity mid-transition.
+ */
+export declare function fadeHarnessDropOverlayIn(): void;

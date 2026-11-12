@@ -120,6 +120,7 @@ const CSS = `
   min-height: 0;
   overflow: auto;
   padding: 4px 0 8px;
+  transition: box-shadow 0.12s ease-out;
 }
 
 /* One row: [guides][arrow][type icon][name][hover actions]. The transparent
@@ -134,6 +135,9 @@ const CSS = `
   white-space: nowrap;
   border-left: 2px solid transparent;
   animation: df-row-in 0.12s ease-out;
+  /* Drop feedback eases in like the Harness's own surfaces instead of
+     snapping, so the switch from the Harness drop overlay is not a hard cut. */
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
 }
 @keyframes df-row-in {
   from { opacity: 0; transform: translateY(-2px); }

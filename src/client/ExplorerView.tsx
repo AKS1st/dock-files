@@ -37,7 +37,7 @@ import {
 } from './transferStore'
 import { translate } from './i18n'
 import { useLocale } from './hooks'
-import { carriesFiles, dismissHarnessDropOverlay, dropDestinationOf, parentPathOf } from './dropBridge.ts'
+import { carriesFiles, dismissHarnessDropOverlay, dropDestinationOf, fadeHarnessDropOverlayIn, fadeHarnessDropOverlayOut, parentPathOf } from './dropBridge.ts'
 import {
   copyIcon,
   cutIcon,
@@ -737,7 +737,9 @@ export function ExplorerView(props: ViewProps): ReactNode {
       event.stopPropagation()
       if (!inside) {
         inside = true
-        dismissHarnessDropOverlay()
+        // Ease an overlay the Harness already painted out instead of snapping
+        // it off, so entering the panel keeps the Harness's own transition.
+        fadeHarnessDropOverlayOut()
       }
       const { highlight } = dropDestinationOf(event.target, rootRef.current)
       if (highlight !== null) setDragOver(highlight)
@@ -755,6 +757,15 @@ export function ExplorerView(props: ViewProps): ReactNode {
       event.stopPropagation()
       inside = false
       setDragOver(null)
+      // Leaving the panel hands the drag back to the Harness: its overlay is
+      // faded back in place. A leave with no `relatedTarget` is the drag ending
+      // or leaving the window, so the overlay must go rather than come back —
+      // restoring it there left a full-screen drop invitation on screen with no
+      // drag behind it.
+      const leftViewport = next === null || event.clientX <= 0 || event.clientY <= 0
+        || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight
+      if (leftViewport) dismissHarnessDropOverlay()
+      else fadeHarnessDropOverlayIn()
     }
     const onDrop = (event: DragEvent): void => {
       if (!carriesFiles(event.dataTransfer)) return
@@ -762,19 +773,84 @@ export function ExplorerView(props: ViewProps): ReactNode {
       event.stopPropagation()
       inside = false
       setDragOver(null)
+      // The drag is over: unmount the overlay now rather than fading a panel
+      // it no longer covers.
+      dismissHarnessDropOverlay()
       const { dest } = dropDestinationOf(event.target, rootRef.current)
       if (dest !== null) routeDropRef.current(event, dest)
+    }
+
+    /**
+     * Keep the Harness overlay mounted while a drag moves from the conversation
+     * into this panel.
+     *
+     * The Harness closes its overlay as soon as a dragleave drops its nested
+     * counter to zero — i.e. the instant the pointer leaves the conversation
+     * side — which is the hard cut this bridge exists to smooth out. Swallowing
+     * exactly those leaves (the ones whose relatedTarget is inside this panel)
+     * keeps the overlay mounted, so the panel's own `dragenter` can fade it
+     * instead of finding it already gone.
+     */
+    const onDocumentDragLeave = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      const next = event.relatedTarget
+      if (next instanceof Node && element.contains(next)) event.stopPropagation()
+    }
+
+    /**
+     * Tear a faded Harness overlay down whenever a drag ends without this panel
+     * hearing about it.
+     *
+     * A cancelled drag, a drop on another surface, and a drag that leaves the
+     * window can all end without a `dragleave` whose `relatedTarget` tells us
+     * so; an overlay restored for a drag that no longer exists would then stay
+     * on screen. These listeners cover every such ending.
+     */
+    const endDrag = (): void => dismissHarnessDropOverlay()
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') endDrag()
+    }
+    const onWindowDrop = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      const target = event.target
+      if (target instanceof Node && element.contains(target)) return
+      endDrag()
+    }
+
+    /**
+     * A drag that leaves the window ends the Harness drop state, but the Harness
+     * only tears its overlay down when its own nested counter reaches zero — and
+     * the panel deliberately skews that counter by swallowing the leaves that
+     * cross into it. So the window's final leave (the one with no
+     * `relatedTarget`) dismisses the overlay directly instead.
+     */
+    const onWindowDragLeave = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      if (event.relatedTarget !== null) return
+      endDrag()
     }
 
     element.addEventListener('dragenter', onDragEnter, true)
     element.addEventListener('dragover', onDragOver, true)
     element.addEventListener('dragleave', onDragLeave, true)
     element.addEventListener('drop', onDrop, true)
+    document.addEventListener('dragleave', onDocumentDragLeave, true)
+    window.addEventListener('dragleave', onWindowDragLeave, true)
+    window.addEventListener('dragend', endDrag, true)
+    window.addEventListener('keydown', onEscape, true)
+    window.addEventListener('blur', endDrag)
+    window.addEventListener('drop', onWindowDrop, true)
     detachDropBridgeRef.current = () => {
       element.removeEventListener('dragenter', onDragEnter, true)
       element.removeEventListener('dragover', onDragOver, true)
       element.removeEventListener('dragleave', onDragLeave, true)
       element.removeEventListener('drop', onDrop, true)
+      document.removeEventListener('dragleave', onDocumentDragLeave, true)
+      window.removeEventListener('dragleave', onWindowDragLeave, true)
+      window.removeEventListener('dragend', endDrag, true)
+      window.removeEventListener('keydown', onEscape, true)
+      window.removeEventListener('blur', endDrag)
+      window.removeEventListener('drop', onWindowDrop, true)
     }
   }, [])
 

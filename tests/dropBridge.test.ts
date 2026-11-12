@@ -1,11 +1,26 @@
 /**
  * Unit tests for the Harness drop-conflict bridge: destination mapping, the
- * drag filter, and the overlay dismissal synthetic event.
+ * drag filter, and the overlay fade in/out + dismissal behaviour (including
+ * fast direction reversal, which must not restart or double-schedule).
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { carriesFiles, dropDestinationOf, dismissHarnessDropOverlay, parentPathOf } from '../src/client/dropBridge.ts'
+import {
+  carriesFiles,
+  dismissHarnessDropOverlay,
+  dropDestinationOf,
+  fadeHarnessDropOverlayIn,
+  fadeHarnessDropOverlayOut,
+  parentPathOf,
+} from '../src/client/dropBridge.ts'
+
+interface FakeOverlay {
+  getAttribute: (name: string) => string | null
+  style: Record<string, string>
+  offsetWidth: number
+  isConnected: boolean
+}
 
 /** Minimal DataTransfer stand-in: only `types` is read by the bridge. */
 function transfer(types: string[]): DataTransfer {
@@ -25,6 +40,45 @@ function row(path: string, isDir: boolean): Element {
     },
   } as unknown as Element
 }
+
+/** A Harness overlay stand-in: styles, offsetWidth and connection state. */
+function overlay(): FakeOverlay {
+  return {
+    getAttribute: (name: string) => (name === 'role' ? 'status' : null),
+    style: { transition: '', opacity: '' },
+    offsetWidth: 0,
+    isConnected: true,
+  }
+}
+
+/** Install the globals a browser would provide; returns a restore function. */
+function stubBrowser(children: unknown[], box: { position: string; pointerEvents: string; zIndex: string }): () => void {
+  const globals = globalThis as unknown as Record<string, unknown>
+  const saved = {
+    document: globals.document,
+    getComputedStyle: globals.getComputedStyle,
+    DataTransfer: globals.DataTransfer,
+    DragEvent: globals.DragEvent,
+    File: globals.File,
+  }
+  globals.document = {
+    body: { children },
+    documentElement: { dispatchEvent: () => true },
+  }
+  globals.getComputedStyle = () => box
+  return () => {
+    globals.document = saved.document
+    globals.getComputedStyle = saved.getComputedStyle
+    globals.DataTransfer = saved.DataTransfer
+    globals.DragEvent = saved.DragEvent
+    globals.File = saved.File
+    // Reset the module's fade state without touching the stubbed document
+    // (the globals are already gone, so this only clears bookkeeping).
+    dismissHarnessDropOverlay()
+  }
+}
+
+const OVERLAY_BOX = { position: 'fixed', pointerEvents: 'none', zIndex: '1000' }
 
 test('parentPathOf handles unix, windows and root paths', () => {
   assert.equal(parentPathOf('/w/a.txt'), '/w')
@@ -57,6 +111,90 @@ test('dropDestinationOf falls back to the root for empty areas', () => {
   const empty = { closest: () => null } as unknown as EventTarget
   assert.deepEqual(dropDestinationOf(empty, '/w'), { dest: '/w', highlight: '/w' })
   assert.deepEqual(dropDestinationOf(null, '/w'), { dest: '/w', highlight: '/w' })
+})
+
+test('fadeHarnessDropOverlayOut eases the Harness overlay to transparent', () => {
+  const element = overlay()
+  const restore = stubBrowser([element], OVERLAY_BOX)
+  try {
+    fadeHarnessDropOverlayOut()
+    assert.equal(element.style.opacity, '0')
+    assert.match(element.style.transition, /opacity 160ms ease-out/)
+    // Repeating the same direction must not restart the curve.
+    fadeHarnessDropOverlayOut()
+    assert.equal(element.style.opacity, '0')
+  } finally {
+    restore()
+  }
+})
+
+test('fast out/in/out reversals leave the overlay transparent and never snap it', async () => {
+  const element = overlay()
+  const restore = stubBrowser([element], OVERLAY_BOX)
+  try {
+    fadeHarnessDropOverlayOut()
+    fadeHarnessDropOverlayIn()
+    fadeHarnessDropOverlayOut()
+    assert.equal(element.style.opacity, '0')
+    // The fade-in scheduled a style cleanup; the reversal must cancel it, or it
+    // would clear the inline opacity mid-fade and flash the overlay.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(element.style.opacity, '0')
+  } finally {
+    restore()
+  }
+})
+
+test('a remounted overlay is targeted again, not the stale node', () => {
+  const first = overlay()
+  const restore = stubBrowser([first], OVERLAY_BOX)
+  try {
+    fadeHarnessDropOverlayOut()
+    assert.equal(first.style.opacity, '0')
+    // The Harness unmounted and remounted the overlay while the drag continued.
+    first.isConnected = false
+    const second = overlay()
+    ;(globalThis.document as unknown as { body: { children: unknown[] } }).body.children = [second]
+    fadeHarnessDropOverlayOut()
+    assert.equal(second.style.opacity, '0')
+    assert.equal(second.style.transition !== '', true)
+  } finally {
+    restore()
+  }
+})
+
+test('fadeHarnessDropOverlayOut falls back to the counter reset without an overlay', () => {
+  let dispatched = 0
+  const restore = stubBrowser([], OVERLAY_BOX)
+  const globals = globalThis as unknown as Record<string, unknown>
+  globals.DataTransfer = class { items = { add: () => undefined } }
+  globals.DragEvent = class { type: string; constructor(type: string) { this.type = type } }
+  globals.File = class {}
+  ;(globalThis.document as unknown as { documentElement: { dispatchEvent: () => boolean } }).documentElement.dispatchEvent = () => {
+    dispatched += 1
+    return true
+  }
+  try {
+    fadeHarnessDropOverlayOut()
+  } finally {
+    restore()
+  }
+  assert.equal(dispatched, 1)
+})
+
+test('dismissHarnessDropOverlay cancels a pending fade-in cleanup', async () => {
+  const element = overlay()
+  const restore = stubBrowser([element], OVERLAY_BOX)
+  try {
+    fadeHarnessDropOverlayOut()
+    fadeHarnessDropOverlayIn()
+    dismissHarnessDropOverlay()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    // The cleanup timer must have been cancelled with the dismissal.
+    assert.notEqual(element.style.transition, '')
+  } finally {
+    restore()
+  }
 })
 
 test('dismissHarnessDropOverlay dispatches one document-level file dragleave', () => {
