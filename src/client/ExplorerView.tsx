@@ -37,6 +37,7 @@ import {
 } from './transferStore'
 import { translate } from './i18n'
 import { useLocale } from './hooks'
+import { carriesFiles, dismissHarnessDropOverlay, dropDestinationOf, parentPathOf } from './dropBridge.ts'
 import {
   copyIcon,
   cutIcon,
@@ -130,12 +131,8 @@ function baseNameOf(path: string): string {
   return at === -1 ? path : path.slice(at + 1)
 }
 
-/** Parent directory of a path, or null at the filesystem root. */
-function parentPathOf(path: string): string | null {
-  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
-  if (at === -1) return null
-  return at === 0 ? (path.startsWith('\\') ? '\\' : '/') : path.slice(0, at)
-}
+// Drop-conflict helpers (destination mapping, overlay dismissal) live in dropBridge.
+
 
 /** Read a Blob as a base64 data URL (used for clipboard images and uploads). */
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -709,6 +706,78 @@ export function ExplorerView(props: ViewProps): ReactNode {
     if (source !== '') moveDropped(source, dest)
   }
 
+  /** Latest drop router and root, so the native bridge never calls a stale one. */
+  const routeDropRef = useRef(handleDrop)
+  routeDropRef.current = handleDrop
+  const rootRef = useRef(root)
+  rootRef.current = root
+  /** Cleanup of the native drop bridge currently attached to the panel. */
+  const detachDropBridgeRef = useRef<(() => void) | null>(null)
+
+  /**
+   * Ref for the panel root: keeps `viewRef` current (focus handling uses it)
+   * and installs the drop bridge.
+   *
+   * The bridge is a callback ref rather than an effect because the panel root
+   * only exists after the first listing arrives — an effect keyed on nothing
+   * would run before that and never attach.
+   */
+  const attachView = useCallback((element: HTMLDivElement | null) => {
+    viewRef.current = element
+    detachDropBridgeRef.current?.()
+    detachDropBridgeRef.current = null
+    if (element === null) return
+    let inside = false
+
+    const onDragEnter = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      // Capture phase: stopping here keeps the event away from `document`,
+      // where the Harness would switch its overlay on and queue the files.
+      event.preventDefault()
+      event.stopPropagation()
+      if (!inside) {
+        inside = true
+        dismissHarnessDropOverlay()
+      }
+      const { highlight } = dropDestinationOf(event.target, rootRef.current)
+      if (highlight !== null) setDragOver(highlight)
+    }
+    const onDragOver = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'copy'
+    }
+    const onDragLeave = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      const next = event.relatedTarget
+      if (next instanceof Node && element.contains(next)) return
+      event.stopPropagation()
+      inside = false
+      setDragOver(null)
+    }
+    const onDrop = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      event.preventDefault()
+      event.stopPropagation()
+      inside = false
+      setDragOver(null)
+      const { dest } = dropDestinationOf(event.target, rootRef.current)
+      if (dest !== null) routeDropRef.current(event, dest)
+    }
+
+    element.addEventListener('dragenter', onDragEnter, true)
+    element.addEventListener('dragover', onDragOver, true)
+    element.addEventListener('dragleave', onDragLeave, true)
+    element.addEventListener('drop', onDrop, true)
+    detachDropBridgeRef.current = () => {
+      element.removeEventListener('dragenter', onDragEnter, true)
+      element.removeEventListener('dragover', onDragOver, true)
+      element.removeEventListener('dragleave', onDragLeave, true)
+      element.removeEventListener('drop', onDrop, true)
+    }
+  }, [])
+
   /** Delete one entry after a themed confirmation (recursive for directories). */
   const removePath = (path: string): void => {
     setMenu(null)
@@ -887,6 +956,10 @@ export function ExplorerView(props: ViewProps): ReactNode {
         key: entry.path,
         className: rowClass,
         title: entry.path,
+        // Read by the native drop bridge (see dropDestinationOf) to decide the
+        // destination without depending on which React handler fired.
+        'data-df-path': entry.path,
+        'data-df-dir': entry.isDir ? '1' : undefined,
         draggable: !isRenaming,
         onClick: isRenaming ? undefined : () => {
           if (entry.isDir) setPasteDir(entry.path)
@@ -1167,7 +1240,7 @@ export function ExplorerView(props: ViewProps): ReactNode {
   const rows = renderLevel(entries, 0, [])
 
   return createElement('div', {
-    ref: viewRef,
+    ref: attachView,
     className: 'df-view',
     tabIndex: 0,
     // Focus the panel so Ctrl+V pastes OS-copied files into it; leave
