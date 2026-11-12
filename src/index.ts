@@ -25,10 +25,10 @@ export const name = 'dock-files'
 /**
  * Services required before mounting.
  *
- * `webRuntime` used to be listed here and supplied `trustedHosts`; DSH 0.2
- * replaced that service with the `connection` service, which is read lazily
- * through {@link declaredTrustedHosts} so a host without it still mounts
- * (loopback-only fence, the pre-0.2 behaviour).
+ * The declared-authority list these routes fence with used to be injected here
+ * as `webRuntime`. DSH renamed that service to `webStartup` in 0.2.1, so the
+ * list is resolved lazily through `declaredTrustedHosts` instead: a renamed
+ * service can no longer park this plugin, and older hosts still mount.
  */
 export const inject = ['webServer', 'sessions']
 
@@ -719,16 +719,21 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
 /**
  * Authorities this deployment declared besides loopback.
  *
- * Read per request from the host's `connection` service (`trustedHosts`), which
- * DSH 0.2 provides; older hosts exposed the same list on `webRuntime`. A host
- * with neither keeps the loopback-only fence, never a crash.
+ * DSH publishes them as `trustedHosts` on `webStartup` (0.2.1+); `webRuntime`
+ * is the same service under its 0.1.x / 0.2.0 name, and a host that exposes
+ * only the connection RPC carries the list on `connection`. Probe all three
+ * lazily: a host with none of them keeps the loopback-only fence, and no
+ * rename can park this plugin on a missing service again.
  */
 function declaredTrustedHosts(ctx: WbContext): readonly string[] {
   if (typeof ctx.get !== 'function') return []
-  const connection = ctx.get('connection') as { trustedHosts?: readonly string[] } | undefined
-  const declared = connection?.trustedHosts
-  if (!Array.isArray(declared)) return []
-  return declared.filter((entry): entry is string => typeof entry === 'string')
+  for (const name of ['webStartup', 'webRuntime', 'connection']) {
+    const service = ctx.get(name) as { trustedHosts?: readonly string[] } | undefined
+    const declared = service?.trustedHosts
+    if (!Array.isArray(declared)) continue
+    return declared.filter((entry): entry is string => typeof entry === 'string')
+  }
+  return []
 }
 
 /** DNS-rebinding / cross-site defense (not authentication). */
@@ -764,8 +769,9 @@ interface WbContext {
   /**
    * Read a service without declaring a hard dependency on it.
    *
-   * Used for the optional `connection` service: a host that does not provide
-   * it keeps the loopback-only fence instead of failing to mount.
+   * Used for the optional `webStartup` / `webRuntime` / `connection` services:
+   * a host that provides none of them keeps the loopback-only fence instead of
+   * failing to mount.
    */
   get?(name: string): unknown
   effect(fn: () => void | (() => void), label?: string): void

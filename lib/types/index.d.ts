@@ -3,10 +3,10 @@ export declare const name = "dock-files";
 /**
  * Services required before mounting.
  *
- * `webRuntime` used to be listed here and supplied `trustedHosts`; DSH 0.2
- * replaced that service with the `connection` service, which is read lazily
- * through {@link declaredTrustedHosts} so a host without it still mounts
- * (loopback-only fence, the pre-0.2 behaviour).
+ * The declared-authority list these routes fence with used to be injected here
+ * as `webRuntime`. DSH renamed that service to `webStartup` in 0.2.1, so the
+ * list is resolved lazily through `declaredTrustedHosts` instead: a renamed
+ * service can no longer park this plugin, and older hosts still mount.
  */
 export declare const inject: string[];
 /** Machine-readable error codes of the /wb-files API. */
@@ -52,8 +52,9 @@ interface WbContext {
     /**
      * Read a service without declaring a hard dependency on it.
      *
-     * Used for the optional `connection` service: a host that does not provide
-     * it keeps the loopback-only fence instead of failing to mount.
+     * Used for the optional `webStartup` / `webRuntime` / `connection` services:
+     * a host that provides none of them keeps the loopback-only fence instead of
+     * failing to mount.
      */
     get?(name: string): unknown;
     effect(fn: () => void | (() => void), label?: string): void;
