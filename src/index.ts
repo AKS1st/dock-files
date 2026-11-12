@@ -22,8 +22,15 @@ import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:
 
 export const name = 'dock-files'
 
-/** Services required before mounting. */
-export const inject = ['webServer', 'sessions', 'webRuntime']
+/**
+ * Services required before mounting.
+ *
+ * `webRuntime` used to be listed here and supplied `trustedHosts`; DSH 0.2
+ * replaced that service with the `connection` service, which is read lazily
+ * through {@link declaredTrustedHosts} so a host without it still mounts
+ * (loopback-only fence, the pre-0.2 behaviour).
+ */
+export const inject = ['webServer', 'sessions']
 
 // ── Wire helpers (stripped from dsh-better-sidebar/src/wire.ts) ──────────
 
@@ -709,6 +716,21 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
   })
 }
 
+/**
+ * Authorities this deployment declared besides loopback.
+ *
+ * Read per request from the host's `connection` service (`trustedHosts`), which
+ * DSH 0.2 provides; older hosts exposed the same list on `webRuntime`. A host
+ * with neither keeps the loopback-only fence, never a crash.
+ */
+function declaredTrustedHosts(ctx: WbContext): readonly string[] {
+  if (typeof ctx.get !== 'function') return []
+  const connection = ctx.get('connection') as { trustedHosts?: readonly string[] } | undefined
+  const declared = connection?.trustedHosts
+  if (!Array.isArray(declared)) return []
+  return declared.filter((entry): entry is string => typeof entry === 'string')
+}
+
 /** DNS-rebinding / cross-site defense (not authentication). */
 function isTrustedRequest(request: IncomingMessage, trustedHosts: readonly string[]): boolean {
   const host = header(request.headers, 'host')
@@ -739,9 +761,13 @@ interface WbContext {
   sessions: {
     get(sessionId: string): { header: { cwd?: string } } | undefined
   }
-  webRuntime: {
-    trustedHosts: readonly string[]
-  }
+  /**
+   * Read a service without declaring a hard dependency on it.
+   *
+   * Used for the optional `connection` service: a host that does not provide
+   * it keeps the loopback-only fence instead of failing to mount.
+   */
+  get?(name: string): unknown
   effect(fn: () => void | (() => void), label?: string): void
 }
 
@@ -774,7 +800,7 @@ export function apply(ctx: WbContext): void {
     kind: 'prefix',
     path: '/wb-files',
     handler: async (req, res) => {
-      if (!isTrustedRequest(req, ctx.webRuntime.trustedHosts)) {
+      if (!isTrustedRequest(req, declaredTrustedHosts(ctx))) {
         writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
         return
       }
